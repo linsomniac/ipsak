@@ -93,7 +93,7 @@ async def run_info_lookups(
         # Optional traceroute (after everything else)
         if do_trace and ip:
             try:
-                result.trace = await run_traceroute(ip, timeout=30.0)
+                result.trace = await run_traceroute(ip, timeout=timeout)
             except Exception as e:
                 result.errors["trace"] = str(e)
 

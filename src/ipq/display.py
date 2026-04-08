@@ -170,13 +170,16 @@ def print_calc(subnet: SubnetResult) -> None:
     console.print(table)
 
 
-def print_trace(result: QueryResult) -> None:
+def print_trace(result: QueryResult, *, elapsed: float | None = None) -> None:
     """Print traceroute-only output."""
     trace_table = _build_trace_section(result)
     if trace_table:
         console.print()
-        console.print(f"  [bold]{result.target}[/] Traceroute")
+        header = f"  [bold]{result.target}[/] Traceroute"
+        console.print(header)
         console.print(trace_table)
+        if elapsed is not None:
+            console.print(f"  [dim]Completed in {elapsed:.1f}s[/]")
     else:
         console.print("[yellow]No traceroute data available[/]")
     _print_errors(result)
@@ -522,24 +525,41 @@ def _build_trace_section(result: QueryResult) -> Table | None:
     if not result.trace:
         return None
 
+    has_asn = any(h.asn is not None for h in result.trace)
+
     table = Table(box=None, padding=(0, 1), title="Traceroute", title_style="bold cyan")
     table.add_column("Hop", style="dim", justify="right", width=4)
     table.add_column("IP", min_width=16)
-    table.add_column("Hostname", min_width=20)
+    if has_asn:
+        table.add_column("ASN", min_width=8)
+    table.add_column("Hostname", min_width=20, max_width=60, no_wrap=True, overflow="ellipsis")
     table.add_column("RTT", justify="right", width=10)
     table.add_column("Loss", justify="right", width=6)
 
     for hop in result.trace:
         ip_str = hop.ip or "*"
         host_str = hop.hostname or ""
-        rtt_str = f"{hop.rtt_ms:.1f} ms" if hop.rtt_ms is not None else "*"
         loss_str = f"{hop.loss_pct:.0f}%" if hop.loss_pct is not None else ""
 
+        if hop.rtt_ms is not None:
+            rtt_str = f"{hop.rtt_ms:.1f} ms"
+        else:
+            rtt_str = "*"
+
+        # Color based on loss
         style = ""
-        if hop.loss_pct is not None and hop.loss_pct > 0:
+        if hop.ip is None:
+            style = "dim"
+        elif hop.loss_pct is not None and hop.loss_pct > 0:
             style = "yellow" if hop.loss_pct < 50 else "red"
 
-        table.add_row(str(hop.hop), ip_str, host_str, rtt_str, loss_str, style=style)
+        row: list[str] = [str(hop.hop), ip_str]
+        if has_asn:
+            asn_str = f"AS{hop.asn}" if hop.asn else ""
+            row.append(asn_str)
+        row.extend([host_str, rtt_str, loss_str])
+
+        table.add_row(*row, style=style)
 
     return table
 

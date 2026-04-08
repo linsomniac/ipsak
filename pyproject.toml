@@ -13,8 +13,9 @@ dependencies = [
     "rich>=13.0",
 ]
 
-[project.optional-dependencies]
-trace = ["icmplib>=3.0"]
+# AIDEV-NOTE: Traceroute now uses raw ICMP sockets directly (no icmplib needed).
+# Requires root or CAP_NET_RAW for the fast parallel engine; falls back to
+# system traceroute/tracepath when unprivileged.
 
 [project.urls]
 Homepage = "https://github.com/linsomniac/ipq"

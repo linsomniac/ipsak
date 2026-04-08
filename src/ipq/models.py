@@ -111,7 +111,11 @@ class TraceHop:
     ip: str | None = None
     hostname: str | None = None
     rtt_ms: float | None = None
+    rtt_min: float | None = None
+    rtt_max: float | None = None
     loss_pct: float | None = None
+    asn: int | None = None
+    asn_name: str | None = None
 
 
 @dataclass

@@ -186,9 +186,13 @@ def trace_cmd(
     json_output: Annotated[bool, typer.Option("--json", "-j", help="Output as JSON")] = False,
     timeout: Annotated[
         float, typer.Option("--timeout", "-T", help="Traceroute timeout in seconds")
-    ] = 30.0,
+    ] = 10.0,
+    probes: Annotated[int, typer.Option("--probes", "-q", help="Probes per hop (1-10)")] = 5,
+    asn: Annotated[bool, typer.Option("--asn", "-a", help="Show ASN for each hop")] = False,
 ) -> None:
     """Run traceroute to a target."""
+    import time as _time
+
     target_type, normalized = detect_target(target)
 
     trace_target = normalized
@@ -201,19 +205,26 @@ def trace_cmd(
         except Exception:
             trace_target = normalized
 
+    probes = max(1, min(10, probes))
+
     async def _run() -> QueryResult:
         result = QueryResult(target=target, target_type=target_type, ip=trace_target)
         try:
-            result.trace = await run_traceroute(trace_target, timeout=timeout)
+            result.trace = await run_traceroute(
+                trace_target, timeout=timeout, count=probes, with_asn=asn
+            )
         except Exception as e:
             result.errors["trace"] = str(e)
         return result
 
+    t0 = _time.monotonic()
     result = asyncio.run(_run())
+    elapsed = _time.monotonic() - t0
+
     if json_output:
         print_json(result)
     else:
-        print_trace(result)
+        print_trace(result, elapsed=elapsed)
 
 
 @app.command()
