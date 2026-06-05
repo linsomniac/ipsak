@@ -1,6 +1,6 @@
 [project]
 name = "ipsak"
-version = "0.9.1"
+version = "0.9.2"
 description = "The IP Swiss Army Knife — fast IP, CIDR, and domain information queries for network operations"
 readme = "README.md"
 license = "CC0-1.0"
