@@ -1,0 +1,19 @@
+I have a project called "ipsak" that is a "swiss-army knife" for networking.  It is
+written in Python, and I'd like to convert it to go, and enhance it significantly.  The
+original project is at https://github.com/linsomniac/ipsak to get an idea of what it
+does.  I think the current default tool (`ipsak 8.8.8.8`) should be switched to the
+sub-command `info`.  I'd like it to be structured so that it can run things in parallel,
+like the info command is going to be looking up information from various sources and it
+would be nice if they could run as quickly as possible by running multiple requests in
+parallel.
+
+I'd also like to start a `ping` tool that is like the normal ping tool, but instead of
+printing a line for every packet it provides an updating status line and keeps things
+on one line, except when there is packet loss.  In the case of loss, it should print out a
+line indicating the start of the loss, and then update once packets start coming back
+again, saying something like "Lost 8 packets, ids 7-15", something like that.  It would be
+nice if you could update that previous line while the packet loss is happening.  Start a
+new line when a new loss event happens.  Some enhanced terminal output handling will
+likely be a benefit.
+
+This project should have a nice, joyful to use TUI.
