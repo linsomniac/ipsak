@@ -1,6 +1,6 @@
 # ipsak
 
-A little clarity for your network. A Go rewrite of the [IP Swiss Army Knife](https://github.com/linsomniac/ipsak), with concurrent lookups and a quiet, live ping monitor.
+A little clarity for your network. A Go rewrite of the [IP Swiss Army Knife](https://github.com/linsomniac/ipsak), with concurrent diagnostics, a quiet live ping monitor, and tools for inspecting and moving network traffic.
 
 ```sh
 make build
@@ -24,7 +24,7 @@ go install -buildvcs=false ./cmd/ipsak
 | `ipsak whois <ip\|domain>` | IP registration through RDAP; domains resolve to an IP |
 | `ipsak calc <cidr>` | Constant-space subnet arithmetic, including IPv6 `/0` |
 | `ipsak trace <ip\|domain>` | System traceroute, with optional per-hop ASN enrichment |
-| `ipsak myip` | Local interfaces, public-IP discovery, and full public-IP information |
+| `ipsak myip` | Public IPv4 and IPv6 discovered in parallel, with details for the first responding address; `--interfaces` adds local interfaces |
 
 `info` is now an explicit subcommand. `ipsak 8.8.8.8` explains the new invocation. Running `ipsak` alone shows help. URLs, host:port input, bracketed IPv6, internationalized domains, and IPv6 interface zones are accepted where applicable. A domain's IPv4 address is preferred, with IPv6 fallback; ping also has `-4` and `-6`.
 
@@ -36,7 +36,102 @@ ipsak dns example.com --json
 ipsak calc 2001:db8::/64
 ipsak trace 8.8.8.8 --probes 3 --asn
 ipsak myip --plain
+ipsak myip --interfaces
 ```
+
+## More tools
+
+| Command | What it does |
+| --- | --- |
+| `doctor [host\|url]` | Parallel interface, DNS, route, TCP, TLS, and HTTP checks with failure suggestions; default `https://example.com` |
+| `tlscert <host[:port]>` | Target certificate, expiration, hostname/trust verification, fingerprint, and TLS settings; `--verbose` adds the chain |
+| `httpinfo <url\|host>` | HTTP headers, redirects, remote addresses, and DNS/connect/TLS/first-byte timings |
+| `dnscheck <name\|ip>` | Compare DNS answers across resolvers and display TTLs |
+| `mtu <host>` | Probe unfragmented packet sizes and report confirmed bounds or an exact observed path MTU |
+| `sockets` | Local TCP/UDP endpoints, states, queues, and available process owners |
+| `route <ip\|domain>` | Selected interface, source address, next hop, and matching route where available |
+| `interfaces` | Addresses, flags, MTUs, and available counters; `--sample 1s` measures throughput |
+| `neighbors` | Cached IPv4 ARP and IPv6 NDP entries, including incomplete/failed entries |
+| `connect <host:port>` | Exchange raw TCP bytes using stdin/stdout |
+| `listen [port\|address]` | Accept one raw TCP session; default `127.0.0.1:9000` |
+| `send [file\|-]` | Send a file or stdin with byte-count and SHA-256 verification |
+| `receive [file\|-]` | Receive to a file or stdout; publish named files atomically after verification |
+| `serve [port\|address]` | HTTP diagnostic server: echo requests, or return a chosen body/status/delay |
+| `wake <mac>` | Send Wake-on-LAN packets with destination, source-interface, and repeat-count options |
+| `lookingglass <ip\|cidr>` | Query public RIPE RIS and NLNOG BGP observations concurrently; aliases `looking-glass`, `lg` |
+| `ntptime [server[:port]]` | NTP response timestamps, offset, delay, and server metadata; default `pool.ntp.org` |
+
+```sh
+ipsak doctor https://example.com/health --json
+ipsak tlscert example.com
+ipsak httpinfo https://example.com --max-redirects 5
+ipsak dnscheck example.com --resolver 1.1.1.1,8.8.8.8 --type A,AAAA
+ipsak interfaces --sample 1s
+ipsak sockets --listening --port 443
+ipsak lookingglass 8.8.8.8 --limit 10
+ipsak ntptime pool.ntp.org --json
+```
+
+`doctor` resolves once and pins service checks to the chosen address, retaining
+the hostname for HTTP and certificate verification. It connects directly without
+HTTP proxy environment settings and reports redirects without following them.
+`tlscert` retains invalid certificates with explicit verification failure;
+revocation is not checked. `httpinfo` performs bounded GET requests and discards
+body content. `dnscheck` uses system resolvers unless `--resolver` is supplied;
+different answers can be legitimate, while unavailable resolvers remain errors.
+
+MTU sizes include IP and ICMP headers. Success at the requested ceiling means
+"at least" that size; silence is inconclusive. Raw ICMP privileges are required
+(`CAP_NET_RAW` on Linux, elevated privileges on macOS). Looking-glass results are
+BGP observations from particular collectors, rather than remote ping/traceroute.
+NTP provides one unauthenticated sample and never changes the system clock.
+
+Interactive inventory views use compact rows; plain and JSON output retain all
+fields. Linux route/socket/neighbor inspection uses `ip` and `ss` from iproute2;
+macOS uses `route`, `lsof`, `arp`, and `ndp`. Traffic counters are currently
+available on Linux. Missing counters and inaccessible process owners are shown
+as unavailable. Route selection and neighbor caches do not prove reachability;
+successful `wake` means a packet was sent, not that the device woke.
+
+Full options, examples, platform details, and review evidence:
+[protocol tools](docs/probe-tools.md), [host tools](docs/host-tools.md),
+[doctor and MTU](docs/diagnostic-tools.md).
+
+## Transfer in either direction
+
+Both transfer commands require exactly one of `--listen ADDRESS` or
+`--connect HOST:PORT`. Either end can establish the connection:
+
+```sh
+# Receiver listens; run the sender in another terminal or machine.
+ipsak receive saved.bin --listen 0.0.0.0:9000
+ipsak send original.bin --connect receiver.example:9000
+
+# Sender listens; run the receiver in another terminal or machine.
+ipsak send original.bin --listen 0.0.0.0:9000
+ipsak receive saved.bin --connect sender.example:9000
+
+# Omit the filename, or use -, for standard streams.
+printf 'hello\n' | ipsak send --connect 127.0.0.1:9000
+ipsak receive --listen 9000 > received.bin
+
+# Raw TCP and an HTTP diagnostic endpoint.
+printf 'GET / HTTP/1.0\r\n\r\n' | ipsak connect example.com:80
+ipsak serve 8080 --status 503 --body 'maintenance' --duration 1m
+```
+
+A bare listening port binds loopback; use an explicit address to accept remote
+connections. Stream sessions have no overall deadline by default; set
+`--timeout 1m` for a finite session. Outgoing TCP establishment is bounded to
+10 seconds. `serve` uses `--timeout` per request and `--duration` for its lifetime.
+
+Progress and readiness use stderr. For a final JSON report on stdout, `receive`
+requires a filename and `connect`/`listen` require `--output FILE`; `send --json`
+works with a file or stdin. Existing files are preserved unless `--force` is
+specified. Standard-output transfers can leave partial bytes on failure.
+`send`/`receive` use the ipsak framing protocol and must be paired;
+`connect`/`listen` are raw TCP. Transfers are unencrypted, and the checksum checks
+data integrity rather than peer identity. See [stream tools](docs/stream-tools.md).
 
 ## Watch a connection
 
@@ -127,7 +222,7 @@ always includes every address. See the [research and design notes](docs/cidr-pin
 | `--json`, `-j` | One final JSON document on stdout; diagnostics go to stderr |
 | `--plain` | Plain text, without colors or cursor control |
 | `--no-color` or `NO_COLOR` | Disable color while retaining live terminal updates |
-| `--timeout`, `-T` | Overall lookup deadline, default **10s**; per-probe ping timeout, default **1s** |
+| `--timeout`, `-T` | Diagnostics: **10s** overall; ping: **1s** per probe; TCP streams/transfers: **0** (unlimited); serve: **10s** per request |
 | `--trace`, `-t` | Include traceroute in `info` |
 | `--probes`, `-q` | Probes per traceroute hop, 1–10; default 3 |
 | `--asn`, `-a` | Include ASN and AS name for traceroute addresses |
@@ -142,9 +237,9 @@ always includes every address. See the [research and design notes](docs/cidr-pin
 
 Timeouts and ping intervals accept numeric seconds (`0.25`) or Go durations (`250ms`). Ping hostname resolution has a separate 10s limit. A ping timeout is at most one hour; single-host timeout/interval must allow no more than 4094 pending probes. A CIDR sweep permits at most 4096 pending probes across all addresses. The engines do not send catch-up bursts after scheduling delays.
 
-Live rendering requires a terminal on both stdin and stdout and a non-dumb `TERM`. Redirected output has no ANSI escapes. Plain ping prints loss start/end events and a final summary, without per-packet lines. Final text reports can abbreviate long fields to fit a terminal; `--plain` and `--json` retain full values. Terminal-bound external values have control characters removed.
+Live rendering requires a terminal on both stdin and stdout and a non-dumb `TERM`. Generated diagnostic output has no ANSI escapes when redirected. Plain ping prints loss start/end events and a final summary, without per-packet lines. Final text reports can abbreviate long fields to fit a terminal; `--plain` and `--json` retain full values. External values in generated terminal reports have control characters removed. Raw `connect`, `listen`, and `receive` payloads preserve their exact bytes, including any control characters in the payload.
 
-Exit codes: **0** for successful lookups or ping with replies and no loss, **1** for partial lookup failures or ping loss/no replies, **2** for invalid arguments and operational errors, **130** for user interruption. An elapsed `--duration` uses the normal ping result code. Partial lookup and interrupted ping JSON remain available.
+Exit codes: **0** for successful checks, transfers, planned server completion, or ping with replies and no loss; **1** for failed checks, partial provider failures, transfer/server failures, or ping loss/no replies; **2** for invalid arguments, startup failures before a report, and output errors; **130** for user interruption. A configured duration uses the normal command result code. Partial diagnostic and interrupted session JSON remain available; argument and early startup errors may occur before a document exists.
 
 CIDR sweeps use **0** when at least one address responded, even if other
 addresses were silent or had send errors; **1** when none responded; **2** for

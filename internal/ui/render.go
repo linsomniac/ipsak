@@ -4,8 +4,10 @@ package ui
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
@@ -25,7 +27,7 @@ func Clean(s string) string {
 	}, s)
 }
 
-type Theme struct{ Color bool }
+type Theme struct{ Color, Verbose bool }
 
 func (t Theme) style(text, color string, bold bool) string {
 	if !t.Color {
@@ -38,7 +40,8 @@ func (t Theme) Muted(s string) string   { return t.style(s, "#94A3B8", false) }
 func (t Theme) Good(s string) string    { return t.style(s, "#6EE7B7", false) }
 func (t Theme) Warn(s string) string    { return t.style(s, "#FBBF24", false) }
 
-func fields(value any) []string {
+func fields(value any, width int) []string {
+	now := time.Now()
 	b, err := json.Marshal(value)
 	if err != nil {
 		return []string{Clean(fmt.Sprint(value))}
@@ -48,8 +51,8 @@ func fields(value any) []string {
 		return nil
 	}
 	var lines []string
-	var walk func(string, any)
-	walk = func(key string, v any) {
+	var walk func(string, string, any)
+	walk = func(key, leaf string, v any) {
 		switch x := v.(type) {
 		case map[string]any:
 			keys := make([]string, 0, len(x))
@@ -62,7 +65,7 @@ func fields(value any) []string {
 				if key != "" {
 					label = key + " · " + label
 				}
-				walk(label, x[k])
+				walk(label, k, x[k])
 			}
 		case []any:
 			if len(x) == 0 {
@@ -73,26 +76,79 @@ func fields(value any) []string {
 				if _, ok := e.(map[string]any); ok {
 					label = fmt.Sprintf("%s %d", key, i+1)
 				}
-				walk(label, e)
+				walk(label, leaf, e)
 			}
 		case nil:
 		case string:
 			if x == "" {
 				return
 			}
-			for _, line := range strings.Split(x, "\n") {
+			display := x
+			if leaf == "not_after" || leaf == "expires" {
+				display = expirationDate(x, now)
+			}
+			for _, line := range strings.Split(display, "\n") {
+				address := addressValue(line)
 				if key != "" {
-					lines = append(lines, fmt.Sprintf("%-14s %s", Clean(key), Clean(line)))
+					formatted := fmt.Sprintf("%-14s %s", Clean(key), Clean(line))
+					if (display != x || address) && width > 0 && ansi.StringWidth(formatted) > width {
+						// Keep addresses and expiry countdowns visible when their
+						// field labels would otherwise push them off the screen.
+						lines = append(lines, Clean(key))
+						value := Clean(line)
+						value = ansi.Hardwrap(value, width, true)
+						lines = append(lines, strings.Split(value, "\n")...)
+					} else {
+						lines = append(lines, formatted)
+					}
 				} else {
-					lines = append(lines, Clean(line))
+					value := Clean(line)
+					if address && width > 0 {
+						value = ansi.Hardwrap(value, width, true)
+					}
+					lines = append(lines, strings.Split(value, "\n")...)
 				}
 			}
 		default:
 			lines = append(lines, fmt.Sprintf("%-14s %v", Clean(key), x))
 		}
 	}
-	walk("", v)
+	walk("", "", v)
 	return lines
+}
+
+func addressValue(value string) bool {
+	if _, err := netip.ParseAddr(value); err == nil {
+		return true
+	}
+	if _, err := netip.ParsePrefix(value); err == nil {
+		return true
+	}
+	if first, last, ok := strings.Cut(value, " – "); ok {
+		_, firstErr := netip.ParseAddr(first)
+		_, lastErr := netip.ParseAddr(last)
+		return firstErr == nil && lastErr == nil
+	}
+	return false
+}
+
+func expirationDate(value string, now time.Time) string {
+	expires, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return value
+	}
+	// Unix seconds avoid time.Duration's roughly 290-year range limit. Floor
+	// complete 24-hour days so a just-expired certificate has a negative count.
+	seconds := expires.Unix() - now.Unix()
+	if expires.Nanosecond() < now.Nanosecond() {
+		seconds--
+	}
+	const day = int64(24 * 60 * 60)
+	days := seconds / day
+	if seconds < 0 && seconds%day != 0 {
+		days--
+	}
+	return fmt.Sprintf("%s (%d days)", value, days)
 }
 
 func (t Theme) Section(s lookup.Section, width int, frame int) string {
@@ -116,7 +172,14 @@ func (t Theme) Section(s lookup.Section, width int, frame int) string {
 	if s.Source != "" {
 		lines = append(lines, t.Muted(Clean(s.Source)))
 	}
-	for _, line := range fields(s.Data) {
+	dataLines, compact := t.tlsLines(s.Data, width)
+	if !compact && width > 0 {
+		dataLines, compact = diagnosticLines(s.Data)
+	}
+	if !compact {
+		dataLines = fields(s.Data, width)
+	}
+	for _, line := range dataLines {
 		lines = append(lines, line)
 	}
 	if s.Error != "" {
@@ -125,7 +188,7 @@ func (t Theme) Section(s lookup.Section, width int, frame int) string {
 	if s.Status == "pending" {
 		lines = append(lines, t.Muted("Looking up…"))
 	}
-	if s.Status == "ok" && len(fields(s.Data)) == 0 {
+	if s.Status == "ok" && len(dataLines) == 0 {
 		lines = append(lines, t.Muted("No records returned"))
 	}
 	if width > 0 {
@@ -137,12 +200,31 @@ func (t Theme) Section(s lookup.Section, width int, frame int) string {
 }
 
 func (t Theme) Report(r lookup.Report, width, frame int) string {
+	if r.Command == "myip" {
+		families := 0
+		for _, s := range r.Sections {
+			if s.Key == "public_ipv4" || s.Key == "public_ipv6" {
+				families++
+			}
+		}
+		if families == 2 {
+			// Family cards already show the discovered addresses. Keep the
+			// legacy public section in JSON, and show aggregate failures here.
+			sections := make([]lookup.Section, 0, len(r.Sections))
+			for _, s := range r.Sections {
+				if s.Key != "public" || s.Status == "error" {
+					sections = append(sections, s)
+				}
+			}
+			r.Sections = sections
+		}
+	}
 	title := "ipsak  /  " + strings.ToUpper(r.Command)
 	if r.Target != "" {
 		title += "  ·  " + Clean(r.Target)
 	}
 	var blocks []string
-	if width >= 100 {
+	if width >= 100 && len(r.Sections) > 1 {
 		w := (width - 5) / 2
 		for i := 0; i < len(r.Sections); i += 2 {
 			left := lipgloss.NewStyle().Width(w).Render(t.Section(r.Sections[i], w, frame))

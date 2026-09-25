@@ -54,6 +54,7 @@ func (d durationValue) Set(s string) error {
 
 type config struct {
 	json, plain, noColor bool
+	verbose              bool
 	timeout              time.Duration
 }
 
@@ -68,7 +69,7 @@ func terminal(in io.Reader, out io.Writer, c config) (bool, ui.Theme, int) {
 		}
 	}
 	_, noColor := os.LookupEnv("NO_COLOR")
-	return interactive, ui.Theme{Color: interactive && !c.noColor && !noColor}, width
+	return interactive, ui.Theme{Color: interactive && !c.noColor && !noColor, Verbose: c.verbose}, width
 }
 func writeJSON(w io.Writer, value any) error {
 	enc := json.NewEncoder(w)
@@ -94,12 +95,13 @@ func newCommand(version string, openSweep func(netip.Addr) (ping.SweepTransport,
 	root.PersistentFlags().BoolVar(&c.plain, "plain", false, "Use plain text without live updates")
 	root.PersistentFlags().BoolVar(&c.noColor, "no-color", false, "Disable terminal colors")
 	root.PersistentFlags().VarP(durationValue{&c.timeout}, "timeout", "T", "Overall lookup deadline, or ping reply timeout (seconds or Go duration)")
-	for _, spec := range []struct{ name, use, help string }{{"info", "info <ip|cidr|domain>", "Explore DNS, ASN, registration, location, routes and reputation"}, {"dns", "dns <ip|domain>", "Inspect DNS records or reverse DNS"}, {"whois", "whois <ip|domain>", "Look up registration through RDAP"}, {"calc", "calc <cidr>", "Calculate IPv4 and IPv6 subnet ranges instantly"}, {"trace", "trace <ip|domain>", "Follow the network path with the system traceroute"}, {"myip", "myip", "Discover local interfaces and explore your public IP"}} {
+	for _, spec := range []struct{ name, use, help string }{{"info", "info <ip|cidr|domain>", "Explore DNS, ASN, registration, location, routes and reputation"}, {"dns", "dns <ip|domain>", "Inspect DNS records or reverse DNS"}, {"whois", "whois <ip|domain>", "Look up registration through RDAP"}, {"calc", "calc <cidr>", "Calculate IPv4 and IPv6 subnet ranges instantly"}, {"trace", "trace <ip|domain>", "Follow the network path with the system traceroute"}, {"myip", "myip", "Discover your public IPv4 and IPv6 addresses"}} {
 		opts := lookup.Options{Probes: 3}
 		spec := spec
 		cmd := &cobra.Command{Use: spec.use, Short: spec.help, Args: cobra.ExactArgs(1)}
 		if spec.name == "myip" {
 			cmd.Args = cobra.NoArgs
+			cmd.Flags().BoolVar(&opts.Interfaces, "interfaces", false, "Include local interfaces and their IP addresses")
 		}
 		if spec.name == "info" {
 			cmd.Flags().BoolVarP(&opts.Trace, "trace", "t", false, "Include traceroute")
@@ -322,6 +324,10 @@ func newCommand(version string, openSweep func(netip.Addr) (ping.SweepTransport,
 		return nil
 	}
 	root.AddCommand(pc)
+	addProbeCommands(root, &c)
+	addHostCommands(root, &c)
+	addStreamCommands(root, &c)
+	addDiagnosticCommands(root, &c)
 	return root
 }
 

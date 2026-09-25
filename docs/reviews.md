@@ -75,3 +75,101 @@ SIGINT with partial JSON, and rejection of oversized IPv6 ranges. Real PTY
 checks cover finite completion, resize, q, NO_COLOR, and cursor/terminal
 restoration. A `/dev/full` check confirms failed-output shutdown. Linux and
 macOS arm64 builds are checked.
+
+## Diagnostic and stream expansion (2026-09-24)
+
+Seventeen commands were added: doctor, tlscert, httpinfo, dnscheck, mtu, sockets,
+route, interfaces, neighbors, connect, listen, send, receive, serve, wake,
+lookingglass, and ntptime. Every command received separate brainstorm, design,
+implementation, and test verdicts from an independent ultra-effort subagent.
+
+| Implementation group | Independent ultra reviewer | Per-command record |
+| --- | --- | --- |
+| Protocol clients | stream_tools | [Protocol tools](probe-tools.md) |
+| Local host tools | protocol_tools | [Host tools](host-tools.md) |
+| Streams and HTTP server | host_tools | [Stream tools](stream-tools.md) |
+| Doctor, MTU, shared reports | host_tools | [Diagnostic tools](diagnostic-tools.md) |
+| Compact inventory UI | protocol_tools | [Diagnostic tools](diagnostic-tools.md) |
+
+All stages and the final cross-group implementation/documentation audit are
+approved, with no unresolved review findings. Follow-up reviews resolved:
+
+- Parallel provider failures preserve successful data, deterministic JSON, and
+  useful nonzero exit codes. Cancellation differs from expired deadlines.
+- Transfers support either connection direction, retain raw byte ordering, and
+  keep payload separate from reports. Named receives verify before atomic
+  publication and acknowledge only committed output. Blocking inherited pipes
+  can be canceled without closing caller-owned descriptors.
+- Stream sessions default to unlimited duration, with an optional overall
+  deadline and a separate ten-second outgoing TCP establishment limit.
+- Invalid TLS certificates remain visible without implying trust. IPv6 interface
+  scopes remain in routed addresses but are removed from certificate identity.
+- MTU search uses explicit size evidence; timeouts cannot invent upper bounds.
+- Linux socket parsing handles both IPv4 device scopes and IPv6 scopes inside
+  or outside brackets. Native checks exposed these real output variations.
+- macOS route flags distinguish local routes, rejects, and blackholes. macOS
+  socket/neighbor adapters have typed parsers and fixtures.
+- Compact terminal inventory rows retain full plain/JSON data, sanitize generated
+  fields, and avoid unnecessary JSON conversion on each live update.
+
+Validation includes complete vet/race tests, Linux and macOS arm64 builds, local
+protocol fixtures, native Linux inventory/route/socket/neighbor checks, and real
+CLI binary file transfers in both connection directions. A temporary HTTP server
+was queried with httpinfo and raw TCP. PTY checks verified narrow resize, normal
+completion, keyboard cancellation, NO_COLOR, and terminal-state restoration.
+
+Public smoke tests passed for tlscert, httpinfo, doctor, ntptime, and both RIPE
+RIS/NLNOG looking-glass providers. DNS comparison correctly retained successful
+IPv4-resolver answers while returning failure for a configured unreachable IPv6
+resolver. These public checks are manual evidence, not test-suite dependencies.
+
+Native IPv4/IPv6 MTU checks ran in a disposable user/network namespace. Ceiling
+probes succeeded; a configured isolated 1400-byte loopback MTU was discovered
+exactly for both families. No host privileges or interface settings were changed.
+macOS runtime behavior is covered by parser fixtures and cross-compilation; no
+native macOS runtime was available during this implementation.
+
+## Public IPv4 and IPv6 discovery (2026-09-24)
+
+The protocol_tools ultra-effort reviewer approved brainstorming, design,
+implementation, and network/display verification for concurrent family discovery.
+Separate connection pools enforce tcp4/tcp6 and validate the returned family.
+The first success starts enrichment immediately, while a two-second grace period
+bounds the remaining family probe. Parent cancellation remains an error; a missing
+family is optional when its peer succeeds. Existing JSON keys remain available.
+
+Regression fixtures cover both reply orders, concurrent starts without redundant
+requests, overlap with enrichment, fresh transports and redirects, provider loser
+cancellation, mapped/scoped/nonpublic address rejection, one or both families
+failing, grace cancellation, and the full deadline for the first response.
+The complete vet/race suite passes. The rebuilt binary discovers both public
+families on the development host in roughly 70 ms; unrelated RPKI and blocklist
+provider failures remain separately reported.
+
+Human output labels each family explicitly and calls the selected primary
+address “Address used for details.” The redundant public card is omitted unless
+it carries an aggregate error. A disposable rendering harness checks complete
+IPv4/IPv6, scoped addresses, prefixes, and ranges at widths 1–80, and the actual
+report at widths 80/100/120. It also checks unchanged JSON, legacy report display,
+visible aggregate errors, and ordinary text truncation.
+
+The follow-up `myip --interfaces` option also passed ultra-effort brainstorm,
+plan, design, implementation, and verification reviews. Local inventory is
+collected and included only when requested. Existing CLI/lookup/UI race tests
+pass; disposable checks cover default/true/false flag forms in JSON, plain text,
+and terminal rendering, flag scope/help, cancellation exit codes, and native
+inventory with the option enabled. The standalone `interfaces` command is unchanged.
+
+## Target certificate display (2026-09-24)
+
+The protocol_tools ultra-effort reviewer approved brainstorming, design,
+implementation, and verification for the `tlscert` default target-certificate
+view and `--verbose` chain view. Leaf expiry is promoted to the main summary;
+all other leaf fields remain visible. JSON always retains the complete chain.
+Recognized expiry values wrap at narrow widths without losing the countdown.
+
+Existing CLI/probe/UI/doctor race suites and the build pass. Disposable checks
+cover leaf versus intermediate expiry, absent/zero/expired dates, widths 1–120,
+complete target fields, JSON immutability, verbose flag forms and scope, trust
+failure/cancellation exits, and TLS acquisition without application data.
+Native `iresis.com` checks verify the summary, verbose chain, and complete JSON.

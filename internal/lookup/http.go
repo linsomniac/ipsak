@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -280,6 +281,51 @@ type PublicIP struct {
 }
 
 func (s *Service) PublicIP(ctx context.Context) (any, error) {
+	return s.discoverPublicIP(ctx, "")
+}
+
+func (s *Service) PublicIPv4(ctx context.Context) (any, error) {
+	return s.publicIPFamily(ctx, "tcp4")
+}
+
+func (s *Service) PublicIPv6(ctx context.Context) (any, error) {
+	return s.publicIPFamily(ctx, "tcp6")
+}
+
+// Each family uses a fresh connection pool. Proxy settings are retained: the
+// network selects the connection to the proxy, and the provider response must
+// still contain a public address of the requested family.
+func (s *Service) publicIPFamily(ctx context.Context, network string) (any, error) {
+	base := s.HTTP.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	transport, ok := base.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("public IP discovery requires an HTTP transport with address-family control")
+	}
+	transport = transport.Clone()
+	defer transport.CloseIdleConnections()
+	dial := transport.DialContext
+	if dial == nil {
+		dial = (&net.Dialer{}).DialContext
+	}
+	transport.DialContext = func(ctx context.Context, _, address string) (net.Conn, error) {
+		return dial(ctx, network, address)
+	}
+	// Alternate TLS dialers or protocol callbacks can own their own pools and
+	// bypass DialContext. Let this cloned transport handle TLS and ALPN itself.
+	transport.DialTLS = nil
+	transport.DialTLSContext = nil
+	transport.TLSNextProto = nil
+	client := *s.HTTP
+	client.Transport = transport
+	service := *s
+	service.HTTP = &client
+	return service.discoverPublicIP(ctx, network)
+}
+
+func (s *Service) discoverPublicIP(ctx context.Context, network string) (any, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	type response struct {
@@ -293,8 +339,19 @@ func (s *Service) PublicIP(ctx context.Context) (any, error) {
 			var ip netip.Addr
 			if err == nil {
 				ip, err = netip.ParseAddr(strings.TrimSpace(string(b)))
-				if err == nil && Classify(ip) != "Public" {
-					err = fmt.Errorf("provider returned a non-public address")
+				if err == nil && ip.Zone() != "" {
+					err = fmt.Errorf("provider returned a scoped address")
+				}
+				if err == nil {
+					ip = ip.Unmap()
+					switch {
+					case network == "tcp4" && !ip.Is4():
+						err = fmt.Errorf("provider did not return IPv4")
+					case network == "tcp6" && !ip.Is6():
+						err = fmt.Errorf("provider did not return IPv6")
+					case Classify(ip) != "Public":
+						err = fmt.Errorf("provider returned a non-public address")
+					}
 				}
 			}
 			ch <- response{PublicIP{ip, address}, err}

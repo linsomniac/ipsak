@@ -4,7 +4,7 @@
 escapes are absent. Errors are also described on stderr with a nonzero exit code.
 Argument, startup, and output-writer failures can occur before a document exists.
 
-Lookup commands (`info`, `dns`, `whois`, `calc`, `trace`, `myip`) use:
+Lookup and finite diagnostic commands use the same report envelope:
 
 ```json
 {
@@ -53,12 +53,116 @@ sections. A section can have both `data` and `error` when partial data is useful
 | `reputation` | Array of zone results: `zone`, `status`, optional return `codes` and `error` |
 | `subnet` | Arithmetic network range; address and usable counts are strings |
 | `trace` | `engine`, raw `output`, optional `networks` map, enrichment `errors`, `note`, `truncated` |
-| `local` | `hostname`, interfaces with `name` and `addresses` (including CIDR prefixes) |
+| `local` | With `myip --interfaces`: `hostname`, interfaces with `name` and `addresses` (including CIDR prefixes) |
 | `public` | Discovered `ip` and HTTPS `source` |
+| `public_ipv4`, `public_ipv6` | Each family's discovered `ip` and HTTPS `source` |
 
-`myip` includes `local` and `public`, followed by normal info sections. It has no
-input `target`. Multi-origin RPKI validates the primary observed origin only; other
-origin ASNs remain visible in `asn.other_origins`.
+`myip` probes IPv4 and IPv6 concurrently with separate connection pools, racing
+providers within each family. Both addresses appear in their named sections.
+`public` retains the first successful response for compatibility; `target` is
+that same address, used for the detailed DNS, registration, and location lookups.
+The display calls it **Address used for details** and omits the redundant `public`
+card unless discovery fails. JSON retains every section and complete address.
+`local` is included only with `--interfaces`; local interfaces are omitted by
+default from terminal, plain text, and JSON output. The report has no input `target`.
+
+Detailed lookups start as soon as either family succeeds. The other family gets
+up to two more seconds, within the overall `--timeout`. An unavailable family is
+`skipped` when the other succeeds; it does not by itself cause a nonzero exit.
+If both fail, discovery is an error. Overall cancellation/deadlines remain errors.
+HTTPS proxy settings are honored: the forced connection family then applies to
+the proxy, and results describe the public egress seen by the provider. A provider
+response must still match the requested address family.
+
+Multi-origin RPKI validates the primary observed origin only; other origin ASNs
+remain visible in `asn.other_origins`.
+
+## Additional diagnostic sections
+
+These retain schema version 1 and the envelope above. Independent queries run
+concurrently and retain deterministic presentation order. Failure can include
+useful `data`; inspect section status before interpreting a result as successful.
+
+| Command / section key | Data contract |
+| --- | --- |
+| `doctor`: `interfaces`, `dns`, `route`, `tcp`, `tls`, `http` | Each check has `summary`, optional typed `details`, and `hint` on failure. `tls` is omitted for HTTP targets. A DNS failure skips dependent checks while preserving interface results. |
+| `tlscert`: `tls` | `address`, `server_name`, negotiated `protocol`/`cipher`/`alpn`, `trusted`, optional `verification_error`, `revocation_checked: false`, and ordered `certificates` with subject, issuer, serial, names, validity dates, SHA-256 fingerprint, and CA flag. |
+| `httpinfo`: `http` | Ordered `hops`, `final_url`, `body_limit`. Each hop includes URL, HTTP status, protocol, headers, remote address, body byte count/truncation, timing fields, and optional error. Body content is discarded. |
+| `dnscheck`: `dnscheck` | `name`, ordered resolver/type `queries`, per-type `comparisons`, and `note`. Queries include RCODE, flags, transport, duration, answers (name/type/TTL/value), and optional error. Comparisons distinguish agreement, disagreement, and insufficient data; no local DNSSEC validation is claimed. |
+| `mtu`: `mtu` | `address`, `ip_version`, `conclusion`, nullable `largest_confirmed`, `upper_bound`, `smallest_rejected`, `path_mtu`, `requested_max`, ordered `probes`, and `note`. Probe status is `reply`, `too_big`, `timeout`, or `error`; size failures distinguish local socket from remote source. |
+| `sockets`: `sockets` | `sockets`, `count`, `notes`. Each row contains protocol/family/state, local/remote address and nullable port, nullable queues, processes (PID/name/FD), and process-availability status. |
+| `route`: `route` | Destination/address/interface, nullable source/gateway/matching prefix, `source_method`, `next_hop_kind`, route type/table, and notes. Missing gateway alone does not indicate failure; a route may be local or on-link. |
+| `interfaces`: `interfaces` | Ordered `interfaces` and notes. Rows contain identity, flags, addresses, MTU, state, nullable counters/throughput and explicit availability status. Counter reset or missing samples never produce invented rates. |
+| `neighbors`: `neighbors` | `neighbors`, `count`, `note`. Rows include address/family/interface, nullable MAC, states, and router flag. An empty cache is a valid result. |
+| `wake`: `wake` | MAC, destination, optional source/interface, requested/sent packet counts, packet size, and explicit lack of confirmed delivery/wake-up. |
+| `lookingglass`: `lookingglass_N_PROVIDER` | Provider/source URL/resource, observation times, normalized `routes`, total count/truncation, `has_routes`, warnings, and scope. `N` is the one-based requested-provider order. |
+| `ntptime`: `ntp` | Server/address, version/leap/stratum, reference or kiss code, client/server timestamps, offset/delay/root metrics, validity, and `authenticated: false`, `clock_changed: false`. |
+
+MTU `conclusion` is `at_least`, `exact`, `inconclusive`, `below_minimum`, or
+`inconsistent`. Only `exact` has a non-null `path_mtu`. A confirmed ceiling is a
+lower bound; a timeout does not create an upper bound. Sizes include IP and ICMP
+headers. Resolution failure can instead produce a `target` error section;
+raw-socket startup failure can occur before JSON exists.
+
+HTTP timings are milliseconds. `first_byte_ms` measures elapsed time from request
+start, and `total_ms` includes bounded body reading; the components should not be
+summed as disjoint intervals. Connect timing can include parallel dial attempts.
+NTP offset/delay fields are meaningful only when `valid` is true. DNS AD is a
+resolver assertion. Empty looking-glass observations do not establish global
+route absence. See the [protocol](probe-tools.md) and [host](host-tools.md)
+contracts for platform and provider details.
+
+`tlscert --verbose` changes human output only: the default shows the target
+certificate, while verbose adds the presented chain. JSON always retains the
+complete `certificates` array and its original validity timestamps. The summary's
+human-readable `expires` row uses the target certificate's `not_after`, including
+days remaining; it is not a separate JSON field.
+
+## Streams and servers
+
+`connect`, `listen`, `send`, `receive`, and `serve` emit one final summary when
+`--json` is selected:
+
+```json
+{
+  "schema_version": 1,
+  "command": "send",
+  "status": "ok",
+  "local": "127.0.0.1:40000",
+  "remote": "127.0.0.1:9000",
+  "elapsed_seconds": 0.02,
+  "stream": {
+    "bytes_sent": 5,
+    "bytes_received": 0,
+    "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+    "verified": true,
+    "committed": true
+  }
+}
+```
+
+Optional `output` identifies a named destination and `error` explains failure.
+`status` is `ok`, `error`, or `interrupted`. Stream counters count payload bytes,
+not framing. Raw connections do not claim checksum verification. A sender's
+`verified` means a matching acknowledgement arrived after receiver commit; the
+receiver's `committed` records its output commit; on the sender, `committed`
+records the acknowledged receiver commit. Streaming stdout cannot roll
+back already-written bytes. Named output is published only after successful
+completion, with explicit `--force` needed to replace an existing file. `receive`
+also requires integrity verification; raw `connect`/`listen` captures commit
+after duplex completion without claiming checksum verification.
+
+`serve` uses `server` instead of `stream`, containing its listening address and
+request/rejection/error counts. A configured server duration completes normally; user interruption
+returns 130 with a partial summary. Stream operations default to no overall
+deadline (`--timeout 0`); explicit timeouts and expired parent deadlines return 1.
+Argument errors and report-write failures return 2.
+
+Payload never shares stdout with JSON: `receive --json` requires a filename;
+`connect --json` and `listen --json` require `--output FILE`. Invalid combinations
+fail before filesystem/socket activity. `send --json` may read stdin. Readiness
+and interactive transfer progress use stderr. See [stream tools](stream-tools.md)
+for the wire protocol and both connection directions.
 
 Ping uses `{ "schema_version": 1, "command": "ping", "ping": { ... } }`:
 

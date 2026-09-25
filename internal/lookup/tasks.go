@@ -10,9 +10,10 @@ import (
 )
 
 type Options struct {
-	Trace    bool
-	Probes   int
-	TraceASN bool
+	Trace      bool
+	Probes     int
+	TraceASN   bool
+	Interfaces bool
 }
 
 func localInterfaces(context.Context, map[string]Section) (any, error) {
@@ -72,7 +73,17 @@ func (s *Service) Tasks(command string, t Target, opts Options) ([]Task, error) 
 	tasks := []Task{}
 	resolve := Task{Key: "target", Title: "Target", Source: "system resolver", Run: func(ctx context.Context, _ map[string]Section) (any, error) { return Resolve(ctx, t, "ip") }}
 	if command == "myip" {
-		tasks = append(tasks, Task{Key: "local", Title: "Your interfaces", Source: "local", Run: localInterfaces}, Task{Key: "public", Title: "Public IP", Source: "HTTPS discovery", Run: func(ctx context.Context, _ map[string]Section) (any, error) { return s.PublicIP(ctx) }})
+		discovery := newPublicDiscovery(s.PublicIPv4, s.PublicIPv6)
+		tasks = append(tasks,
+			Task{Key: "public", Title: "First public response", Source: "HTTPS discovery", Run: func(ctx context.Context, _ map[string]Section) (any, error) { return discovery.result(ctx, 0) }},
+			Task{Key: "public_ipv4", Title: "Public IPv4", Source: "HTTPS discovery · IPv4", Run: func(ctx context.Context, _ map[string]Section) (any, error) { return discovery.result(ctx, 1) }},
+			Task{Key: "public_ipv6", Title: "Public IPv6", Source: "HTTPS discovery · IPv6", Run: func(ctx context.Context, _ map[string]Section) (any, error) { return discovery.result(ctx, 2) }},
+		)
+		if opts.Interfaces {
+			tasks = append(tasks, Task{Key: "local", Title: "Your interfaces", Source: "local", Run: localInterfaces})
+		}
+		resolve.Title = "Address used for details"
+		resolve.Source = "first response · DNS, registration, location"
 		resolve.Depends = []string{"public"}
 		resolve.Run = func(ctx context.Context, deps map[string]Section) (any, error) {
 			ip := deps["public"].Data.(PublicIP).IP
