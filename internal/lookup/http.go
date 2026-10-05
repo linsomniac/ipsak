@@ -205,6 +205,23 @@ func registrantName(contacts []rdapContact) string {
 	return other
 }
 
+// abuseEmails lists each abuse mailbox once, in order of first appearance.
+// Registries repeat one mailbox across contacts and their nested entities.
+func abuseEmails(contacts []rdapContact) []string {
+	var out []string
+	for _, c := range contacts {
+		if !c.has("abuse") {
+			continue
+		}
+		for _, email := range c.Emails {
+			if !slices.Contains(out, email) {
+				out = append(out, email)
+			}
+		}
+	}
+	return out
+}
+
 func rdapDates(events []RDAPEvent) (created, updated string) {
 	for _, event := range events {
 		if event.Action == "registration" {
@@ -260,12 +277,7 @@ func (s *Service) Whois(ctx context.Context, ip netip.Addr) (any, error) {
 	}
 	w := Whois{Name: r.Name, Handle: r.Handle, Range: r.Start + " – " + r.End, Country: r.Country}
 	contacts := rdapContacts(r.Entities)
-	w.Organization = registrantName(contacts)
-	for _, c := range contacts {
-		if c.has("abuse") {
-			w.Abuse = append(w.Abuse, c.Emails...)
-		}
-	}
+	w.Organization, w.Abuse = registrantName(contacts), abuseEmails(contacts)
 	w.Created, w.Updated = rdapDates(r.Events)
 	return w, nil
 }

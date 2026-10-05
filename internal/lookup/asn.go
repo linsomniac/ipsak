@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -102,17 +101,7 @@ func (s *Service) ASNRegistration(ctx context.Context, number uint32) (ASNRegist
 		out.Range = fmt.Sprintf("AS%d – AS%d", *r.Start, *r.End)
 	}
 	contacts := rdapContacts(r.Entities)
-	out.Organization = registrantName(contacts)
-	for _, c := range contacts {
-		if !c.has("abuse") {
-			continue
-		}
-		for _, email := range c.Emails {
-			if !slices.Contains(out.Abuse, email) {
-				out.Abuse = append(out.Abuse, email)
-			}
-		}
-	}
+	out.Organization, out.Abuse = registrantName(contacts), abuseEmails(contacts)
 	out.Created, out.Updated = rdapDates(r.Events)
 	return out, nil
 }

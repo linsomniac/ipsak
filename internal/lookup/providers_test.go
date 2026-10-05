@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -312,6 +313,23 @@ func TestWhoisPrefersOrganisationOverMaintainers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if w := r.(Whois); w.Organization != "Reseaux IP Europeens Network Coordination Centre (RIPE NCC)" || len(w.Abuse) != 1 || w.Abuse[0] != "abuse@ripe.net" {
+		t.Fatalf("%+v", w)
+	}
+}
+
+func TestWhoisListsEachAbuseAddressOnce(t *testing.T) {
+	// APNIC repeats a mailbox across abuse contacts and their nested entities.
+	data := `{"name":"APNIC-LABS","handle":"1.1.1.0 - 1.1.1.255","startAddress":"1.1.1.0","endAddress":"1.1.1.255","country":"AU","entities":[
+{"roles":["abuse"],"vcardArray":["vcard",[["fn",{},"text","IRT-APNICRANDNET-AU"],["kind",{},"text","group"],["email",{},"text","helpdesk@apnic.net"],["email",{},"text","abuse@apnic.net"]]],"entities":[
+{"roles":["abuse"],"vcardArray":["vcard",[["fn",{},"text","Abuse desk"],["email",{},"text","helpdesk@apnic.net"]]]}]},
+{"roles":["registrant"],"vcardArray":["vcard",[["fn",{},"text","APNIC Research and Development"],["kind",{},"text","org"]]]},
+{"roles":["abuse","technical"],"vcardArray":["vcard",[["fn",{},"text","NOC"],["email",{},"text","abuse@apnic.net"],["email",{},"text","noc@apnic.net"]]]}]}`
+	r, err := fixtureService(data).Whois(context.Background(), netip.MustParseAddr("1.1.1.1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// First appearance decides the order.
+	if w, want := r.(Whois), []string{"helpdesk@apnic.net", "abuse@apnic.net", "noc@apnic.net"}; !slices.Equal(w.Abuse, want) || w.Organization != "APNIC Research and Development" {
 		t.Fatalf("%+v", w)
 	}
 }
