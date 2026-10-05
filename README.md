@@ -301,7 +301,7 @@ Location is approximate. Classification identifies operational special-use range
 
 Subnet counts are decimal strings in JSON so IPv6 values retain precision. IPv4 `/31` and `/32` include all addresses. IPv6 `/127` and `/128` include all addresses; broader IPv6 networks exclude the subnet-router anycast address from the displayed usable range. IPv6 has no broadcast field.
 
-**Traceroute currently requires `traceroute` or `tracepath` on PATH.** Its system output and optional address-to-ASN/name map are retained, including partial output on timeout. `tracepath` controls its own probe count. The Python native parallel traceroute engine, reverse hop-name enrichment, and structured per-hop RTT/loss schema have not been ported; this is the deliberate exception to command-level feature coverage. RDAP extracts embedded contacts but does not fetch linked entity documents.
+**Traceroute currently requires `traceroute` or `tracepath` on PATH.** Its system output and optional address-to-ASN/name map are retained, including partial output on timeout. `tracepath` controls its own probe count. The Python native parallel traceroute engine, reverse hop-name enrichment, and structured per-hop RTT/loss schema have not been ported; this is the deliberate exception to command-level feature coverage. RDAP extracts embedded contacts but does not fetch linked entity documents. The organization shown by `whois` and `asn` is the registrant whose vCard kind is `org`, falling back to the first registrant and then to the first contact that is not the abuse desk.
 
 ## Development
 

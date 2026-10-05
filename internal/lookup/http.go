@@ -178,6 +178,33 @@ func rdapContacts(entities []RDAPEntity) []rdapContact {
 	return out
 }
 
+// AIDEV-NOTE: RIPE lists maintainers as registrants beside the holding
+// organisation, so the vCard kind decides: an org registrant, else the first
+// registrant, else the first contact that is not the abuse desk. Whois and
+// the ASN registration share this rule.
+func registrantName(contacts []rdapContact) string {
+	registrant, other := "", ""
+	for _, c := range contacts {
+		if len(c.Names) == 0 {
+			continue
+		}
+		if c.has("registrant") {
+			if c.Kind == "org" {
+				return c.Names[0]
+			}
+			if registrant == "" {
+				registrant = c.Names[0]
+			}
+		} else if other == "" && !c.has("abuse") {
+			other = c.Names[0]
+		}
+	}
+	if registrant != "" {
+		return registrant
+	}
+	return other
+}
+
 func rdapDates(events []RDAPEvent) (created, updated string) {
 	for _, event := range events {
 		if event.Action == "registration" {
@@ -232,14 +259,10 @@ func (s *Service) Whois(ctx context.Context, ip netip.Addr) (any, error) {
 		return nil, fmt.Errorf("invalid RDAP network range")
 	}
 	w := Whois{Name: r.Name, Handle: r.Handle, Range: r.Start + " – " + r.End, Country: r.Country}
-	for _, c := range rdapContacts(r.Entities) {
-		abuse, registrant := c.has("abuse"), c.has("registrant")
-		for _, name := range c.Names {
-			if (registrant || w.Organization == "") && !abuse {
-				w.Organization = name
-			}
-		}
-		if abuse {
+	contacts := rdapContacts(r.Entities)
+	w.Organization = registrantName(contacts)
+	for _, c := range contacts {
+		if c.has("abuse") {
 			w.Abuse = append(w.Abuse, c.Emails...)
 		}
 	}

@@ -298,3 +298,20 @@ func TestDNSCNAMEChaseAndCycle(t *testing.T) {
 		t.Fatal("CNAME cycle accepted")
 	}
 }
+
+func TestWhoisPrefersOrganisationOverMaintainers(t *testing.T) {
+	// Entity order follows a RIPE network: maintainers are also registrants and
+	// come after the organisation that holds the range.
+	data := `{"name":"RIPE-NCC","handle":"193.0.0.0 - 193.0.7.255","startAddress":"193.0.0.0","endAddress":"193.0.7.255","country":"NL","entities":[
+{"roles":["administrative"],"vcardArray":["vcard",[["version",{},"text","4.0"],["fn",{},"text","Managing Director"],["kind",{},"text","group"]]]},
+{"roles":["registrant"],"vcardArray":["vcard",[["version",{},"text","4.0"],["fn",{},"text","Reseaux IP Europeens Network Coordination Centre (RIPE NCC)"],["kind",{},"text","org"]]]},
+{"roles":["registrant"],"vcardArray":["vcard",[["version",{},"text","4.0"],["fn",{},"text","RIPE-NCC-MNT"],["kind",{},"text","individual"]]]},
+{"roles":["abuse"],"vcardArray":["vcard",[["version",{},"text","4.0"],["fn",{},"text","RIPE NCC Operations"],["kind",{},"text","group"],["email",{},"text","abuse@ripe.net"]]]}]}`
+	r, err := fixtureService(data).Whois(context.Background(), netip.MustParseAddr("193.0.6.139"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := r.(Whois); w.Organization != "Reseaux IP Europeens Network Coordination Centre (RIPE NCC)" || len(w.Abuse) != 1 || w.Abuse[0] != "abuse@ripe.net" {
+		t.Fatalf("%+v", w)
+	}
+}

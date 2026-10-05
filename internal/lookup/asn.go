@@ -117,32 +117,6 @@ func (s *Service) ASNRegistration(ctx context.Context, number uint32) (ASNRegist
 	return out, nil
 }
 
-// AIDEV-NOTE: RIPE lists maintainers as registrants beside the holding
-// organisation, so the vCard kind decides. Whois keeps its older rule (the
-// last registrant wins) and shows a maintainer name for the same data.
-func registrantName(contacts []rdapContact) string {
-	registrant, other := "", ""
-	for _, c := range contacts {
-		if len(c.Names) == 0 {
-			continue
-		}
-		if c.has("registrant") {
-			if c.Kind == "org" {
-				return c.Names[0]
-			}
-			if registrant == "" {
-				registrant = c.Names[0]
-			}
-		} else if other == "" && !c.has("abuse") {
-			other = c.Names[0]
-		}
-	}
-	if registrant != "" {
-		return registrant
-	}
-	return other
-}
-
 // asnRDAPEndpoint selects the registry from IANA's ASN bootstrap. The narrowest
 // matching range wins, as the longest prefix does for addresses.
 func (s *Service) asnRDAPEndpoint(ctx context.Context, number uint32) (string, error) {
