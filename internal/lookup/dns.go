@@ -226,19 +226,11 @@ func (c *DNSClient) ASN(ctx context.Context, ip netip.Addr) (ASN, error) {
 }
 
 func (c *DNSClient) ASNName(ctx context.Context, number uint32) (any, error) {
-	txt, err := c.txt(ctx, fmt.Sprintf("AS%d.asn.cymru.com", number))
+	info, err := c.asnRecord(ctx, number)
 	if err != nil {
 		return nil, err
 	}
-	f := strings.SplitN(txt[0], "|", 5)
-	if len(f) != 5 {
-		return nil, fmt.Errorf("malformed Team Cymru ASN name record")
-	}
-	returned, err := strconv.ParseUint(strings.TrimSpace(f[0]), 10, 32)
-	if err != nil || returned != uint64(number) {
-		return nil, fmt.Errorf("Team Cymru ASN name does not match requested ASN")
-	}
-	return map[string]string{"name": strings.TrimSpace(f[4])}, nil
+	return map[string]string{"name": info.Name}, nil
 }
 
 type ListResult struct {

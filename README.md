@@ -59,6 +59,7 @@ ipsak myip --interfaces
 | `serve [port\|address]` | HTTP diagnostic server: echo requests, or return a chosen body/status/delay |
 | `wake <mac>` | Send Wake-on-LAN packets with destination, source-interface, and repeat-count options |
 | `lookingglass <ip\|cidr>` | Query public RIPE RIS and NLNOG BGP observations concurrently; aliases `looking-glass`, `lg` |
+| `asn <as-number>` | Name and registry, RDAP registration and abuse contacts, BGP neighbours, and routing visibility for an autonomous system |
 | `ntptime [server[:port]]` | NTP response timestamps, offset, delay, and server metadata; default `pool.ntp.org` |
 | `capture` | Readable live packet summaries or classic-pcap analysis, with filters and optional pcap output |
 | `mailcheck <domain>` | MX, SPF, DMARC, optional DKIM selector, and optional SMTP/STARTTLS checks without sending mail |
@@ -81,6 +82,7 @@ ipsak dnscheck example.com --resolver 1.1.1.1,8.8.8.8 --type A,AAAA
 ipsak interfaces --sample 1s
 ipsak sockets --listening --port 443
 ipsak lookingglass 8.8.8.8 --limit 10
+ipsak asn AS15169 --limit 5
 ipsak ntptime pool.ntp.org --json
 ```
 
@@ -96,6 +98,10 @@ MTU sizes include IP and ICMP headers. Success at the requested ceiling means
 "at least" that size; silence is inconclusive. Raw ICMP privileges are required
 (`CAP_NET_RAW` on Linux, elevated privileges on macOS). Looking-glass results are
 BGP observations from particular collectors, rather than remote ping/traceroute.
+`asn` accepts `AS15169` or `15169`; its neighbours are AS-path positions seen by
+RIPE RIS collectors, not confirmed business relationships, and `--limit` caps how
+many are listed in each direction. RIPEstat can take over 30 seconds for a large
+network, so raise `--timeout` if its sections report a deadline.
 NTP provides one unauthenticated sample and never changes the system clock.
 
 Interactive inventory views use compact rows; plain and JSON output retain all
@@ -289,7 +295,7 @@ The JSON schema is new and versioned; it does not preserve Python's field layout
 
 ## Data sources and porting notes
 
-DNS uses `/etc/resolv.conf`, retries truncated UDP responses over TCP, and follows bounded CNAME chains. ASN and AS names come from Team Cymru. Location uses HTTPS ipwho.is. RDAP uses IANA's IPv4/IPv6 bootstrap to select the authoritative registry over HTTPS. RPKI uses RIPEstat with the observed ASN/prefix. Public-IP discovery races ipify, icanhazip, and ifconfig.me, then cancels the remaining requests. These commands contact the named services with the queried public IP or domain and use their unauthenticated endpoints and rate limits.
+DNS uses `/etc/resolv.conf`, retries truncated UDP responses over TCP, and follows bounded CNAME chains. ASN and AS names come from Team Cymru. Location uses HTTPS ipwho.is. RDAP uses IANA's IPv4/IPv6 bootstrap to select the authoritative registry over HTTPS. RPKI uses RIPEstat with the observed ASN/prefix. `asn` reads Team Cymru's record for the AS, the RDAP autnum object from the registry selected by IANA's ASN bootstrap, and RIPEstat's asn-neighbours and routing-status data calls, then asks Team Cymru for the names of the listed neighbours. Public-IP discovery races ipify, icanhazip, and ifconfig.me, then cancels the remaining requests. These commands contact the named services with the queried public IP or domain and use their unauthenticated endpoints and rate limits.
 
 Location is approximate. Classification identifies operational special-use ranges; “Public” does not assert that an address is allocated or reachable. DNSBL results distinguish listed, not listed (NXDOMAIN), and unavailable (including refusal codes and empty answers). The configured Spamhaus, SpamCop, and Barracuda zones support IPv4 only. IPv6 reputation is explicitly skipped. SORBS is not carried over. DNSBL results are evidence from the individual lists, not a general safety verdict.
 

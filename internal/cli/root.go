@@ -324,6 +324,7 @@ func newCommand(version string, openSweep func(netip.Addr) (ping.SweepTransport,
 		return nil
 	}
 	root.AddCommand(pc)
+	addASNCommand(root, &c, lookup.NewService)
 	addProbeCommands(root, &c)
 	addHostCommands(root, &c)
 	addStreamCommands(root, &c)

@@ -96,6 +96,7 @@ useful `data`; inspect section status before interpreting a result as successful
 | `neighbors`: `neighbors` | `neighbors`, `count`, `note`. Rows include address/family/interface, nullable MAC, states, and router flag. An empty cache is a valid result. |
 | `wake`: `wake` | MAC, destination, optional source/interface, requested/sent packet counts, packet size, and explicit lack of confirmed delivery/wake-up. |
 | `lookingglass`: `lookingglass_N_PROVIDER` | Provider/source URL/resource, observation times, normalized `routes`, total count/truncation, `has_routes`, warnings, and scope. `N` is the one-based requested-provider order. |
+| `asn`: `asn`, `registration`, `neighbours`, `routing` | `asn` here is Team Cymru's record for the AS itself: numeric `asn`, `name`, `country`, `registry`, `allocated` (no `prefix`, unlike the `info` section of the same key). `registration` is the RDAP autnum: `handle`, `name`, `range` (one AS or a block), `country`, `status`, `organization`, `abuse_email`, `created`, `updated`. `neighbours` has numeric `asn`, `counts` (`total`, `upstream`, `downstream`, `uncertain`) over all provider data, `upstream` and `downstream` arrays capped by `--limit` and ordered by descending `power` (each with `asn`, optional `name`, `power`, `v4_peers`, `v6_peers`), `truncated`, `latest_time`, `warnings`, and `scope`. `routing` has numeric `asn`, `announced`, optional `first_seen`/`last_seen` (`prefix`, `time`), `ipv4` and `ipv6` (`ris_peers_seeing`, `total_ris_peers`, `prefixes`, and `addresses` or `slash48s`), `observed_neighbours`, `query_time`, and `scope`. |
 | `ntptime`: `ntp` | Server/address, version/leap/stratum, reference or kiss code, client/server timestamps, offset/delay/root metrics, validity, and `authenticated: false`, `clock_changed: false`. |
 
 MTU `conclusion` is `at_least`, `exact`, `inconclusive`, `below_minimum`, or
@@ -111,6 +112,14 @@ NTP offset/delay fields are meaningful only when `valid` is true. DNS AD is a
 resolver assertion. Empty looking-glass observations do not establish global
 route absence. See the [protocol](probe-tools.md) and [host](host-tools.md)
 contracts for platform and provider details.
+
+`asn` sections come from independent providers, so any of them can be `error`
+while the others are `ok`; a failed section has no `data`. Neighbour `upstream`
+and `downstream` are RIPEstat's left and right AS-path positions as observed by
+RIPE RIS collectors, not confirmed transit or peering relationships. A neighbour
+without `name` had no Team Cymru record or its lookup failed, which `warnings`
+counts; the warning says so when the deadline stopped those lookups early. `routing.announced` is true when at least one RIS peer currently sees a
+route originated by the AS. RIPEstat times are UTC without a zone suffix.
 
 `tlscert --verbose` changes human output only: the default shows the target
 certificate, while verbose adds the presented chain. JSON always retains the

@@ -2,6 +2,7 @@
 package ui
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/netip"
@@ -46,8 +47,12 @@ func fields(value any, width int) []string {
 	if err != nil {
 		return []string{Clean(fmt.Sprint(value))}
 	}
+	// AIDEV-NOTE: json.Number keeps numbers as encoded. Decoding to float64
+	// printed counts of a million or more as exponents (2.615808e+06).
 	var v any
-	if json.Unmarshal(b, &v) != nil {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	if dec.Decode(&v) != nil {
 		return nil
 	}
 	var lines []string

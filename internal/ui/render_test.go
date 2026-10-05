@@ -33,3 +33,32 @@ func TestLossTextAndNarrowLiveOutput(t *testing.T) {
 		}
 	}
 }
+
+func TestPlainFieldsKeepLargeCountsReadable(t *testing.T) {
+	got := strings.Join(fields(map[string]any{"addresses": uint64(2615808), "asn": uint32(4200000000), "ratio": 12.5, "small": 7}, 0), "\n")
+	for _, want := range []string{"addresses      2615808", "asn            4200000000", "ratio          12.5", "small          7"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestASNNeighboursRenderCompactOnlyInInteractiveColumns(t *testing.T) {
+	section := lookup.Section{Title: "Neighbours · BGP", Status: "ok", Data: lookup.ASNNeighbours{
+		Counts:   lookup.ASNNeighbourCounts{Total: 1, Upstream: 1},
+		Upstream: []lookup.ASNNeighbour{{Number: 1299, Name: "TWELVE99 - Arelion Sweden AB, SE", Power: 354}}, Downstream: []lookup.ASNNeighbour{}}}
+	// Plain output (width 0) is the detailed field list; a terminal column gets
+	// the one-line-per-neighbour form, wrapped to the column.
+	if plain := (Theme{}).Section(section, 0, 0); !strings.Contains(plain, "upstream 1 · asn 1299") || strings.Contains(plain, "AS1299 · power 354") {
+		t.Fatalf("plain:\n%s", plain)
+	}
+	column := (Theme{}).Section(section, 47, 0)
+	if !strings.Contains(column, "AS1299 · power 354") || strings.Contains(column, "upstream 1 · asn") {
+		t.Fatalf("column:\n%s", column)
+	}
+	for _, line := range strings.Split(column, "\n") {
+		if ansi.StringWidth(line) > 47 {
+			t.Errorf("%d cells: %q", ansi.StringWidth(line), line)
+		}
+	}
+}

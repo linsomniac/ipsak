@@ -9,15 +9,17 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 )
 
 type Service struct {
-	DNS                      *DNSClient
-	HTTP                     *http.Client
-	GeoURL, RDAPURL, RPKIURL string
-	BootstrapURL             string
-	PublicURLs               []string
+	DNS                       *DNSClient
+	HTTP                      *http.Client
+	GeoURL, RDAPURL, RPKIURL  string
+	NeighboursURL, RoutingURL string
+	BootstrapURL              string
+	PublicURLs                []string
 }
 
 func NewService() *Service {
@@ -29,7 +31,7 @@ func NewService() *Service {
 			return fmt.Errorf("refusing non-HTTPS redirect")
 		}
 		return nil
-	}}, GeoURL: "https://ipwho.is/", BootstrapURL: "https://data.iana.org/rdap/", RPKIURL: "https://stat.ripe.net/data/rpki-validation/data.json", PublicURLs: []string{"https://api.ipify.org", "https://icanhazip.com", "https://ifconfig.me/ip"}}
+	}}, GeoURL: "https://ipwho.is/", BootstrapURL: "https://data.iana.org/rdap/", RPKIURL: "https://stat.ripe.net/data/rpki-validation/data.json", NeighboursURL: "https://stat.ripe.net/data/asn-neighbours/data.json", RoutingURL: "https://stat.ripe.net/data/routing-status/data.json", PublicURLs: []string{"https://api.ipify.org", "https://icanhazip.com", "https://ifconfig.me/ip"}}
 }
 
 func (s *Service) get(ctx context.Context, address string) ([]byte, error) {
@@ -119,11 +121,86 @@ type RDAP struct {
 	End      string       `json:"endAddress"`
 	Country  string       `json:"country"`
 	Entities []RDAPEntity `json:"entities"`
-	Events   []struct {
-		Action string `json:"eventAction"`
-		Date   string `json:"eventDate"`
-	} `json:"events"`
+	Events   []RDAPEvent  `json:"events"`
 }
+type RDAPEvent struct {
+	Action string `json:"eventAction"`
+	Date   string `json:"eventDate"`
+}
+
+type rdapContact struct {
+	Roles         []string
+	Kind          string
+	Names, Emails []string
+}
+
+func (c rdapContact) has(role string) bool { return slices.Contains(c.Roles, role) }
+
+// rdapContacts flattens embedded entities in document order, parents first.
+// Linked entity documents are not fetched.
+func rdapContacts(entities []RDAPEntity) []rdapContact {
+	var out []rdapContact
+	var scan func([]RDAPEntity, int)
+	scan = func(entities []RDAPEntity, depth int) {
+		if depth > 8 {
+			return
+		}
+		for _, e := range entities {
+			c := rdapContact{Roles: e.Roles}
+			if len(e.VCard) == 2 {
+				var props [][]json.RawMessage
+				if json.Unmarshal(e.VCard[1], &props) == nil {
+					for _, p := range props {
+						if len(p) != 4 {
+							continue
+						}
+						var key, value string
+						_ = json.Unmarshal(p[0], &key)
+						if json.Unmarshal(p[3], &value) != nil {
+							continue
+						}
+						switch key {
+						case "fn":
+							c.Names = append(c.Names, value)
+						case "email":
+							c.Emails = append(c.Emails, value)
+						case "kind":
+							c.Kind = value
+						}
+					}
+				}
+			}
+			out = append(out, c)
+			scan(e.Entities, depth+1)
+		}
+	}
+	scan(entities, 0)
+	return out
+}
+
+func rdapDates(events []RDAPEvent) (created, updated string) {
+	for _, event := range events {
+		if event.Action == "registration" {
+			created = event.Date
+		}
+		if event.Action == "last changed" {
+			updated = event.Date
+		}
+	}
+	return created, updated
+}
+
+// rdapBase returns the first usable HTTPS registry URL without a trailing slash.
+func rdapBase(urls []string) string {
+	for _, raw := range urls {
+		u, err := url.Parse(raw)
+		if err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil && u.RawQuery == "" && u.Fragment == "" {
+			return strings.TrimRight(u.String(), "/")
+		}
+	}
+	return ""
+}
+
 type Whois struct {
 	Name         string   `json:"name"`
 	Handle       string   `json:"handle"`
@@ -155,50 +232,18 @@ func (s *Service) Whois(ctx context.Context, ip netip.Addr) (any, error) {
 		return nil, fmt.Errorf("invalid RDAP network range")
 	}
 	w := Whois{Name: r.Name, Handle: r.Handle, Range: r.Start + " – " + r.End, Country: r.Country}
-	var scan func([]RDAPEntity, int)
-	scan = func(entities []RDAPEntity, depth int) {
-		if depth > 8 {
-			return
+	for _, c := range rdapContacts(r.Entities) {
+		abuse, registrant := c.has("abuse"), c.has("registrant")
+		for _, name := range c.Names {
+			if (registrant || w.Organization == "") && !abuse {
+				w.Organization = name
+			}
 		}
-		for _, e := range entities {
-			abuse, registrant := false, false
-			for _, role := range e.Roles {
-				abuse = abuse || role == "abuse"
-				registrant = registrant || role == "registrant"
-			}
-			if len(e.VCard) == 2 {
-				var props [][]json.RawMessage
-				if json.Unmarshal(e.VCard[1], &props) == nil {
-					for _, p := range props {
-						if len(p) != 4 {
-							continue
-						}
-						var key, value string
-						_ = json.Unmarshal(p[0], &key)
-						if json.Unmarshal(p[3], &value) != nil {
-							continue
-						}
-						if key == "fn" && (registrant || w.Organization == "") && !abuse {
-							w.Organization = value
-						}
-						if key == "email" && abuse {
-							w.Abuse = append(w.Abuse, value)
-						}
-					}
-				}
-			}
-			scan(e.Entities, depth+1)
+		if abuse {
+			w.Abuse = append(w.Abuse, c.Emails...)
 		}
 	}
-	scan(r.Entities, 0)
-	for _, event := range r.Events {
-		if event.Action == "registration" {
-			w.Created = event.Date
-		}
-		if event.Action == "last changed" {
-			w.Updated = event.Date
-		}
-	}
+	w.Created, w.Updated = rdapDates(r.Events)
 	return w, nil
 }
 
@@ -230,12 +275,8 @@ func (s *Service) rdapEndpoint(ctx context.Context, ip netip.Addr) (string, erro
 			}
 			best = p.Bits()
 			endpoint = ""
-			for _, raw := range service[1] {
-				u, err := url.Parse(raw)
-				if err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil && u.RawQuery == "" && u.Fragment == "" {
-					endpoint = strings.TrimRight(u.String(), "/") + "/ip/"
-					break
-				}
+			if base := rdapBase(service[1]); base != "" {
+				endpoint = base + "/ip/"
 			}
 		}
 	}
