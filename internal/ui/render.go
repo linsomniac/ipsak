@@ -174,6 +174,14 @@ func (t Theme) Section(s lookup.Section, width int, frame int) string {
 	}
 	dataLines, compact := t.tlsLines(s.Data, width)
 	if !compact && width > 0 {
+		if summary, ok := s.Data.(interface{ CompactLines() []string }); ok {
+			compact = true
+			for _, line := range summary.CompactLines() {
+				dataLines = append(dataLines, strings.Split(ansi.Hardwrap(Clean(line), width, true), "\n")...)
+			}
+		}
+	}
+	if !compact && width > 0 {
 		dataLines, compact = diagnosticLines(s.Data)
 	}
 	if !compact {

@@ -60,6 +60,18 @@ ipsak myip --interfaces
 | `wake <mac>` | Send Wake-on-LAN packets with destination, source-interface, and repeat-count options |
 | `lookingglass <ip\|cidr>` | Query public RIPE RIS and NLNOG BGP observations concurrently; aliases `looking-glass`, `lg` |
 | `ntptime [server[:port]]` | NTP response timestamps, offset, delay, and server metadata; default `pool.ntp.org` |
+| `capture` | Readable live packet summaries or classic-pcap analysis, with filters and optional pcap output |
+| `mailcheck <domain>` | MX, SPF, DMARC, optional DKIM selector, and optional SMTP/STARTTLS checks without sending mail |
+| `pathwatch <host>` | Updating hop responses and path changes alongside independently measured destination health |
+| `nat` | Compare STUN-observed public mappings using shared local sockets per address family |
+| `dnssec <name>` | Local cryptographic validation of supported exact-owner DNS answers; explicit inconclusive cases |
+| `sshkey <host[:port]>` | Inspect SSH host keys without logging in, optionally compare a trusted fingerprint |
+| `dhcp` | Inspect DHCPv4 lease evidence and optionally solicit server offers without accepting a lease |
+| `ipconflict <ip> --interface IFACE` | Active local-link address-owner observations using ARP or IPv6 Neighbor Discovery |
+| `watch <url> [url...]` | Parallel HTTP/TCP/DNS/ICMP monitoring with outage history and readiness conditions |
+| `bandwidth --listen ADDR` / `--connect HOST:PORT` | Paired TCP upload/download throughput with receiver-confirmed measurements |
+| `dnstrace <name>` | Follow root-to-authoritative DNS delegations, with parallel server queries and visible glue fallback |
+| `discover` | Browse local mDNS/DNS-SD services and resolve advertised endpoints |
 
 ```sh
 ipsak doctor https://example.com/health --json
@@ -96,6 +108,32 @@ successful `wake` means a packet was sent, not that the device woke.
 Full options, examples, platform details, and review evidence:
 [protocol tools](docs/probe-tools.md), [host tools](docs/host-tools.md),
 [doctor and MTU](docs/diagnostic-tools.md).
+
+The additional tools are documented in [monitoring and sessions](docs/session-tools.md),
+[mail, NAT, DNSSEC and SSH](docs/protocol-extra-tools.md), and
+[capture, DHCP, address conflicts and service discovery](docs/local-extra-tools.md).
+
+```sh
+ipsak watch https://example.com tcp://localhost:5432 --count 5 --json
+ipsak watch tcp://localhost:8080 --until all-up --duration 1m
+ipsak dnstrace example.com --type AAAA
+ipsak pathwatch example.com --count 5
+ipsak mailcheck example.com --selector default
+ipsak sshkey example.com
+ipsak discover --duration 5s
+ipsak capture --read sample.pcap --port 443 --json
+ipsak bandwidth --listen 0.0.0.0:9000
+# On the peer: ipsak bandwidth --connect receiver:9000 --duration 5s
+```
+
+Live capture requires `tcpdump` and capture permissions; offline classic-pcap
+inspection does not. `pathwatch` requires raw ICMP privileges. IPv4 `ipconflict`
+uses a supported `arping`; IPv6 uses raw Neighbor Discovery. Address-owner
+silence is inconclusive. DHCP probing is opt-in and requires exclusive access to
+the DHCP client port. DNSSEC validation has explicit supported-proof limits;
+unsupported cases stay inconclusive. Bandwidth peers use an unencrypted,
+unauthenticated diagnostic protocol. See each tool's documentation for bounds,
+platform support, and result interpretation.
 
 ## Transfer in either direction
 

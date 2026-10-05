@@ -328,6 +328,9 @@ func newCommand(version string, openSweep func(netip.Addr) (ping.SweepTransport,
 	addHostCommands(root, &c)
 	addStreamCommands(root, &c)
 	addDiagnosticCommands(root, &c)
+	addProtocolExtraCommands(root, &c)
+	addSessionCommands(root, &c)
+	addLocalExtraCommands(root, &c)
 	return root
 }
 

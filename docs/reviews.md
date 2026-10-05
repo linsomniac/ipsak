@@ -173,3 +173,33 @@ cover leaf versus intermediate expiry, absent/zero/expired dates, widths 1–120
 complete target fields, JSON immutability, verbose flag forms and scope, trust
 failure/cancellation exits, and TLS acquisition without application data.
 Native `iresis.com` checks verify the summary, verbose chain, and complete JSON.
+
+## Twelve-tool expansion (2026-09-26)
+
+An independent `expansion_ultra_review` subagent at ultra effort reviewed each
+tool's brainstorm, design, implementation and verification. The common reporting
+architecture retains partial evidence, bounded parallel work, cancellation,
+single-document JSON, and terminal snapshots that cannot block networking.
+
+Detailed per-tool decisions and review evidence are recorded in:
+
+- [Session and delegation tools](session-tools.md): watch, bandwidth, pathwatch,
+  dnstrace. All four stages passed for every tool.
+- [Protocol diagnostics](protocol-extra-tools.md): mailcheck, nat, dnssec, sshkey.
+- [Local network tools](local-extra-tools.md): capture, dhcp, ipconflict, discover.
+
+Cross-tool review fixed canceled DNS sockets that otherwise waited for their
+deadlines, preserved failures racing monitor cancellation, rejected wrong-class
+DNS aliases, and ensured changing route lengths remain visible. Adversarial
+fixtures verify protocol correlation, bounded framing and parsing, partial
+results, immutable snapshots, final report retention, exit codes and stdout
+separation. Test details and supported-protocol limits remain in the linked
+documents.
+
+All twelve tools passed all four gates. Full repository vet and race tests passed,
+as did native and Darwin arm64 builds. Native loopback tests covered raw ICMPv4,
+ICMPv6, and tcpdump capture; terminal tests covered narrow/wide watch displays and
+full IPv6/fingerprint rendering. No public services are required by test suites.
+Review found and fixed promoted `bytes.Buffer.ReadFrom` methods that bypassed
+subprocess output caps, including the existing traceroute adapter; `io.Copy`
+regressions verify the limits.

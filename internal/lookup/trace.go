@@ -14,9 +14,12 @@ import (
 )
 
 type traceBuffer struct {
-	bytes.Buffer
+	buffer    bytes.Buffer
 	truncated bool
 }
+
+func (b *traceBuffer) Len() int       { return b.buffer.Len() }
+func (b *traceBuffer) String() string { return b.buffer.String() }
 
 func (b *traceBuffer) Write(p []byte) (int, error) {
 	n := len(p)
@@ -25,7 +28,7 @@ func (b *traceBuffer) Write(p []byte) (int, error) {
 		b.truncated = true
 		p = p[:remaining]
 	}
-	_, _ = b.Buffer.Write(p)
+	_, _ = b.buffer.Write(p)
 	return n, nil
 }
 

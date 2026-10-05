@@ -220,6 +220,57 @@ within a window of 1024 recently settled probes, without changing prior losses.
 Pending probes remain pending on interruption, duration expiry, or fatal errors.
 No reverse DNS or provider lookups accompany a sweep.
 
+## Additional diagnostics and sessions
+
+`capture`, `mailcheck`, `pathwatch`, `nat`, `dnssec`, `sshkey`, `dhcp`,
+`ipconflict`, `watch`, `bandwidth`, `dnstrace`, and `discover` use the common
+`schema_version: 1`, `command`, `target`, `sections` envelope. Long-running tools
+emit one final JSON report on completion or interruption; intermediate snapshots
+are terminal-only. Progress/readiness never shares JSON stdout. An error section
+can retain useful data, and a successful observation is not a general claim of
+network health.
+
+- `watch`: target counters (`checks`, `successes`, `failures`, `pending`), last
+  status/timing, bounded outage/recovery `events`, and `events_dropped`.
+  `condition_met` distinguishes an achieved readiness condition from an ordinary
+  end of monitoring. Earlier failures remain visible even when `--until all-up`
+  eventually succeeds.
+- `pathwatch`: `hops` and an independently sampled `destination`. Reply counts
+  at intermediate hops do not establish transit packet loss. Pending probes are
+  separate from timeouts. `reached_ttl` describes the most recent round; source
+  and path-change history have explicit omission counters.
+- `bandwidth`: role, peer, requested duration and sequential `phases`. Each phase
+  includes direction (relative to connector), byte count, elapsed milliseconds,
+  Mbps, measurement provenance and `complete`. Sender progress is provisional;
+  completed measurements use receiver timing and validated byte-count receipts.
+- `dnstrace`: ordered delegation/alias `hops`, per-server observations, selected
+  server, records, and any `system_resolver_fallback`. Completed authoritative
+  `nxdomain` and `nodata` outcomes are valid traces. `dnssec_validated` is false.
+- `dnssec`: `state` is `secure`, `insecure`, `bogus`, or `inconclusive`, with a
+  reason and validation chain. `resolver_ad` is observed metadata, not trusted
+  evidence. Unsupported denial/alias/wildcard cases stay inconclusive.
+- `capture`: retained packet summaries and scan/match counts; binary pcap output
+  requires a separate filename. Retention limits and malformed/truncated packets
+  are visible. Payload bytes are not printed in reports.
+- `dhcp`: passive lease evidence and, only with `--probe`, separately identified
+  offers. An offer is not an acquired lease. Historical evidence is not proof
+  of current configuration.
+- `ipconflict`: observed owners and explicit conflict/in-use/inconclusive
+  interpretation. Silence never establishes that an address is unused.
+- `discover`: advertised service instances with interface/family scope, SRV/TXT
+  information, addresses/endpoints, and incomplete results where resolution did
+  not finish. Discovering a service does not test endpoint reachability.
+- `nat`, `mailcheck`, and `sshkey` retain observations, provenance and failures
+  for their respective protocol checks. NAT mappings do not imply a definitive
+  NAT classification, mail configuration does not imply deliverability, and an
+  observed SSH fingerprint requires a trusted comparison to establish identity.
+
+Argument/output errors remain exit 2 and user interruption exit 130. Finite
+sessions have command-specific success criteria documented in
+[session tools](session-tools.md), [protocol tools](protocol-extra-tools.md), and
+[local tools](local-extra-tools.md). In particular, a planned duration does not
+itself signal failure, while a monitor with no completed checks does not succeed.
+
 Consumers should ignore unknown fields and optional sections. Check status before
 assuming a section has data. Counts wider than JavaScript's safe integer range
 need a JSON decoder that preserves integers (subnet counts are already strings).

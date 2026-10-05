@@ -2,6 +2,7 @@ package lookup
 
 import (
 	"context"
+	"io"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -54,6 +55,17 @@ func TestTraceDependencyAndBoundedOutput(t *testing.T) {
 	input := []byte(strings.Repeat("x", 100000))
 	n, err := b.Write(input)
 	if err != nil || n != len(input) || b.Len() != 64<<10 || !b.truncated {
+		t.Fatal(n, err, b.Len(), b.truncated)
+	}
+}
+
+func TestTraceCopyCannotBypassOutputBound(t *testing.T) {
+	var b traceBuffer
+	// Hide WriterTo as an os/exec pipe does. Embedding bytes.Buffer would expose
+	// ReaderFrom and allow io.Copy to bypass the bounded Write method.
+	input := struct{ io.Reader }{strings.NewReader(strings.Repeat("x", 100000))}
+	n, err := io.Copy(&b, input)
+	if err != nil || n != 100000 || b.Len() != 64<<10 || !b.truncated {
 		t.Fatal(n, err, b.Len(), b.truncated)
 	}
 }
