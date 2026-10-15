@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Go modules are left out: a go.sum change also needs a new vendorHash in
+  # nix/package.nix, which Dependabot cannot compute.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]

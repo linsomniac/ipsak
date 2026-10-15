@@ -1,19 +1,94 @@
-name: Go
+name: CI
+
 on:
   push:
   pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  check:
+  test:
+    name: Test (${{ matrix.os }}, Go ${{ matrix.go }})
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go: [stable]
+        include:
+          # The minimum Go version in go.mod.
+          - os: ubuntu-latest
+            go: "1.25.x"
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          go-version: '1.25.x'
-          cache: true
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ matrix.go }}
       - run: go vet ./...
-      - run: go test -race ./...
-      - run: go build -trimpath -o bin/ipsak ./cmd/ipsak
+      # The race detector needs cgo and a C toolchain, which Windows runners lack.
+      - run: go test ${{ runner.os != 'Windows' && '-race' || '' }} ./...
+        shell: bash
+      - run: go build -trimpath -o bin/ ./cmd/ipsak
+
+  packages:
+    name: Packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache: false
+      - name: Check the GoReleaser config
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: v2.18.3
+          args: check
+      - name: Build a snapshot release
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: v2.18.3
+          args: release --snapshot --clean
+      # Each install must grant CAP_NET_RAW: an unprivileged user runs a
+      # raw-socket command.
+      - name: Install the deb on Debian
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" debian:stable-slim sh -euxc '
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends /dist/ipsak_*_amd64.deb
+            ipsak --version
+            setpriv --reuid=65534 --regid=65534 --clear-groups ipsak mtu 127.0.0.1 --plain'
+      - name: Install the rpm on Fedora
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" fedora:latest sh -euxc '
+            dnf install -y -q --setopt=install_weak_deps=False /dist/ipsak-*.x86_64.rpm
+            ipsak --version
+            setpriv --reuid=65534 --regid=65534 --clear-groups ipsak mtu 127.0.0.1 --plain'
+
+  nix:
+    name: Nix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The NixOS module test boots a VM, which needs KVM.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31.11.2
+        with:
+          extra_nix_config: system-features = nixos-test benchmark big-parallel kvm
+      - run: nix flake check --print-build-logs
