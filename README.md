@@ -3,16 +3,52 @@
 A little clarity for your network. A Go rewrite of the original Python [IP Swiss Army Knife](https://github.com/linsomniac/ipsak/tree/python), with concurrent diagnostics, a quiet live ping monitor, and tools for inspecting and moving network traffic.
 
 ```sh
-make build
-./bin/ipsak info 8.8.8.8
-./bin/ipsak ping example.com
+ipsak info 8.8.8.8
+ipsak ping example.com
 ```
 
-Requires Go 1.25 or newer. Linux and macOS are supported. There is no Python runtime dependency. To install this checkout on your PATH:
+## Install
+
+Each [release](https://github.com/linsomniac/ipsak/releases) has standalone binaries for Linux (amd64, arm64, armv7), macOS (one universal binary for Apple silicon and Intel) and Windows (amd64, arm64), plus deb and rpm packages. Linux binaries are statically linked and have no runtime dependencies.
+
+**Debian and Ubuntu**, or **Fedora and RHEL**:
 
 ```sh
-go install -buildvcs=false ./cmd/ipsak
+sudo apt install ./ipsak_*_amd64.deb
+sudo dnf install ./ipsak-*.x86_64.rpm
 ```
+
+The packages install shell completions and grant `/usr/bin/ipsak` `CAP_NET_RAW`, so the raw-socket commands work without sudo for every local user. They recommend `traceroute`, `tcpdump` and `arping`, which `trace`, live `capture` and IPv4 `ipconflict` use.
+
+**NixOS**: add the flake and enable its module, which also grants `CAP_NET_RAW` through a security wrapper:
+
+```nix
+# flake.nix inputs
+ipsak.url = "github:linsomniac/ipsak";
+ipsak.inputs.nixpkgs.follows = "nixpkgs";
+
+# NixOS configuration
+imports = [ inputs.ipsak.nixosModules.default ];
+programs.ipsak.enable = true;
+```
+
+The flake also provides `packages.<system>.default` and `overlays.default`. To try ipsak without installing it, run `nix run github:linsomniac/ipsak -- info 8.8.8.8`. Nix builds report a version made from the commit date and revision, because flakes cannot see tags.
+
+**Other systems**: download the archive for your platform and put `ipsak` on your PATH. Archives include the license, third-party license notices and completions for bash, zsh, fish and PowerShell.
+
+**From source**, with Go 1.25 or newer:
+
+```sh
+go install github.com/linsomniac/ipsak/cmd/ipsak@latest
+```
+
+**Verify a download** against the release's `checksums.txt`, or check its signed build provenance:
+
+```sh
+gh attestation verify ipsak_*_linux_amd64.tar.gz --repo linsomniac/ipsak
+```
+
+The macOS and Windows binaries are not code-signed. macOS quarantines a binary downloaded through a browser; clear that with `xattr -d com.apple.quarantine ipsak`. Windows SmartScreen may warn on first run. Linux and macOS are the primary platforms: on Windows, `route`, `sockets`, `neighbors`, `wake`, `ipconflict`, `mtu` and DHCP probing report that they are unsupported, `trace` and live `capture` need `traceroute` and `tcpdump`, and ICMP commands may need an Administrator prompt.
 
 ## Explore
 
@@ -204,7 +240,7 @@ Ping accounting is deliberately precise:
 - `--count` stops sending, then waits for every probe to receive a reply or time out. On interruption or `--duration`, unresolved probes remain **pending**. They are excluded from the lost count; loss percentage is `lost / sent`.
 - Live status cannot block the ICMP receiver. Memory is bounded: 40 sparkline samples, 128 recent loss events, and a 1024-transition output queue. An indefinitely stalled output consumer stops the session with an explicit error.
 
-Ping first tries an unprivileged ICMP datagram socket, then a raw socket. On Linux, unprivileged use depends on `net.ipv4.ping_group_range`. Where necessary, an administrator can grant the built binary `CAP_NET_RAW`:
+Ping first tries an unprivileged ICMP datagram socket, then a raw socket. On Linux, unprivileged use depends on `net.ipv4.ping_group_range`. The deb and rpm packages and the NixOS module grant `CAP_NET_RAW` when they install. For other installs, an administrator can grant the binary `CAP_NET_RAW`:
 
 ```sh
 sudo setcap cap_net_raw+ep ./bin/ipsak
@@ -311,6 +347,16 @@ make check              # go vet and go test -race
 go test ./...
 ```
 
-Tests use deterministic packet accounting, fake transports and HTTP responses, and local UDP/TCP DNS fixtures. They do not query public services or require raw sockets. The DNS fixtures need permission to open loopback sockets. CI runs on Linux and macOS. The [design notes](docs/design.md) describe concurrency, loss semantics, and the ultra-effort review process.
+Tests use deterministic packet accounting, fake transports and HTTP responses, and local UDP/TCP DNS fixtures. They do not query public services or require raw sockets. The DNS fixtures need permission to open loopback sockets. CI runs the tests on Linux, macOS and Windows, builds and installs the deb and rpm packages, and runs `nix flake check`, which boots a NixOS VM to test the module. The [design notes](docs/design.md) describe concurrency, loss semantics, and the ultra-effort review process.
+
+### Releasing
+
+Pushing a `v*` tag runs [the release workflow](.github/workflows/release.yml), which uses [GoReleaser](https://goreleaser.com) to publish the binaries, packages, checksums and provenance attestations. To build the same artifacts into `dist/` locally:
+
+```sh
+goreleaser release --snapshot --clean
+```
+
+After changing `go.sum`, update `vendorHash` in [nix/package.nix](nix/package.nix): set it to `lib.fakeHash`, run `nix build`, and copy the hash from the error. Dependency notices are collected from each module's license file; a module released without one needs its upstream license committed under `packaging/licenses/<module path>/`.
 
 Licensed under [CC0 1.0](LICENSE), following the original project.
