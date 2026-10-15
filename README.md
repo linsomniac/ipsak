@@ -1,6 +1,6 @@
 # ipsak
 
-A little clarity for your network. A Go rewrite of the [IP Swiss Army Knife](https://github.com/linsomniac/ipsak), with concurrent diagnostics, a quiet live ping monitor, and tools for inspecting and moving network traffic.
+A little clarity for your network. A Go rewrite of the original Python [IP Swiss Army Knife](https://github.com/linsomniac/ipsak/tree/python), with concurrent diagnostics, a quiet live ping monitor, and tools for inspecting and moving network traffic.
 
 ```sh
 make build
