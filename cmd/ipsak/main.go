@@ -9,7 +9,7 @@ import (
 	"github.com/linsomniac/ipsak/internal/cli"
 )
 
-var version = "1.0.0-dev"
+var version = "1.0.0"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
