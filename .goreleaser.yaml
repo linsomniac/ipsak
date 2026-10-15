@@ -1,0 +1,133 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# AIDEV-NOTE: pushing a v* tag runs this from .github/workflows/release.yml.
+# CI's packages job builds a snapshot and installs the deb and rpm, so a
+# broken change here fails CI before it can break a release.
+version: 2
+
+project_name: ipsak
+
+before:
+  hooks:
+    - ./scripts/release-assets.sh
+
+builds:
+  - id: ipsak
+    main: ./cmd/ipsak
+    binary: ipsak
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64, arm]
+    goarm: ["7"]
+    ignore:
+      - goos: darwin
+        goarch: arm
+      - goos: windows
+        goarch: arm
+
+universal_binaries:
+  - replace: true
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_
+      {{- if eq .Arch "all" }}universal{{ else }}{{ .Arch }}{{ end }}
+      {{- with .Arm }}v{{ . }}{{ end }}
+    builds_info: &file_info
+      owner: root
+      group: root
+      mtime: "{{ .CommitDate }}"
+    files:
+      - src: LICENSE
+        info: *file_info
+      - src: README.md
+        info: *file_info
+      - src: build/THIRD_PARTY_LICENSES.txt
+        strip_parent: true
+        info: *file_info
+      - src: build/completions/*
+        dst: completions
+        strip_parent: true
+        info: *file_info
+
+checksum:
+  name_template: checksums.txt
+
+nfpms:
+  - id: packages
+    package_name: ipsak
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: Sean Reifschneider
+    maintainer: Sean Reifschneider <sean@realgo.com>
+    homepage: https://github.com/linsomniac/ipsak
+    description: |-
+      IP Swiss Army Knife: network diagnostics in one static binary
+      Look up DNS, RDAP registration, ASN and RPKI data for addresses and
+      domains, ping hosts and sweep networks, trace routes, probe path MTU,
+      and inspect or move network traffic.
+    license: CC0-1.0
+    section: net
+    priority: optional
+    formats: [deb, rpm]
+    bindir: /usr/bin
+    mtime: "{{ .CommitDate }}"
+    contents:
+      - src: build/completions/ipsak.bash
+        dst: /usr/share/bash-completion/completions/ipsak
+        file_info: &doc_mode
+          mode: 0644
+      - src: build/completions/_ipsak
+        dst: /usr/share/zsh/vendor-completions/_ipsak
+        packager: deb
+        file_info: *doc_mode
+      - src: build/completions/_ipsak
+        dst: /usr/share/zsh/site-functions/_ipsak
+        packager: rpm
+        file_info: *doc_mode
+      - src: build/completions/ipsak.fish
+        dst: /usr/share/fish/vendor_completions.d/ipsak.fish
+        file_info: *doc_mode
+      - src: build/copyright
+        dst: /usr/share/doc/ipsak/copyright
+        packager: deb
+        file_info: *doc_mode
+      - src: LICENSE
+        dst: /usr/share/licenses/ipsak/LICENSE
+        type: license
+        packager: rpm
+        file_info: *doc_mode
+      - src: build/THIRD_PARTY_LICENSES.txt
+        dst: /usr/share/doc/ipsak/THIRD_PARTY_LICENSES.txt
+        file_info: *doc_mode
+    scripts:
+      postinstall: packaging/postinstall.sh
+    # AIDEV-NOTE: setcap must exist for postinstall to grant CAP_NET_RAW. The
+    # rpm targets the Fedora/RHEL family, where setcap ships in libcap.
+    overrides:
+      deb:
+        dependencies: [libcap2-bin]
+        recommends: [traceroute, tcpdump, iputils-arping]
+      rpm:
+        dependencies: [libcap]
+        recommends: [traceroute, tcpdump, iputils]
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^Merge "
+
+release:
+  prerelease: auto
+  footer: |
+    Verify a download with `gh attestation verify <file> --repo linsomniac/ipsak`, or compare it with `checksums.txt`.
