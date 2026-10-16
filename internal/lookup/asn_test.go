@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -272,6 +273,40 @@ func TestASNNeighboursSaysWhenTheDeadlineCutNameLookupsShort(t *testing.T) {
 	// must blame the deadline rather than Team Cymru.
 	if len(got.Upstream) != 2 || got.Upstream[0].Number != 1299 || got.Upstream[0].Name != "" || len(got.Downstream) != 2 {
 		t.Fatalf("%+v", got)
+	}
+	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], context.DeadlineExceeded.Error()) {
+		t.Fatalf("warnings %q", got.Warnings)
+	}
+}
+
+// lateDeadline is a context whose deadline has passed but which has not yet
+// noticed: the window in which a DNS socket, which reads the deadline
+// directly, can time out before the context reports DeadlineExceeded.
+type lateDeadline struct {
+	context.Context
+	deadline time.Time
+	done     chan struct{}
+	expired  atomic.Bool
+}
+
+func (c *lateDeadline) Deadline() (time.Time, bool) { return c.deadline, true }
+func (c *lateDeadline) Done() <-chan struct{}       { return c.done }
+func (c *lateDeadline) Err() error {
+	if c.expired.Load() {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
+func TestASNNeighboursBlamesTheDeadlineBeforeTheContextNotices(t *testing.T) {
+	s := asnService(t, map[string]string{"https://stat.example/neighbours?resource=AS15169": neighboursBody})
+	s.DNS = dnsFixture(t, func(dns.ResponseWriter, *dns.Msg) {})
+	ctx := &lateDeadline{Context: context.Background(), deadline: time.Now().Add(-time.Millisecond), done: make(chan struct{})}
+	// The lookups time out at once; the context notices well afterwards.
+	time.AfterFunc(50*time.Millisecond, func() { ctx.expired.Store(true); close(ctx.done) })
+	got, err := s.ASNNeighbours(ctx, 15169, 2)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], context.DeadlineExceeded.Error()) {
 		t.Fatalf("warnings %q", got.Warnings)

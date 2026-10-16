@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // ParseASN accepts an AS number written as "AS15169" or "15169".
@@ -315,7 +316,12 @@ func (s *Service) ASNNeighbours(ctx context.Context, number uint32, limit int) (
 		warning := fmt.Sprintf("Names unavailable for %d of %d listed neighbours", failed.Load(), len(listed))
 		// AIDEV-NOTE: RIPEstat's answer is still good when the deadline lands
 		// here, so it is kept and the warning names the real cause. runReport
-		// turns the expired deadline into a nonzero exit.
+		// turns the expired deadline into a nonzero exit. DNS sockets read the
+		// deadline directly and can time out a moment before the context
+		// reports it, so a passed deadline waits for the context to catch up.
+		if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+			<-ctx.Done()
+		}
 		if err := ctx.Err(); err != nil {
 			warning += ": lookups stopped early (" + err.Error() + ")"
 		}
