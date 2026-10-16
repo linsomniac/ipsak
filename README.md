@@ -48,7 +48,9 @@ go install github.com/linsomniac/ipsak/cmd/ipsak@latest
 gh attestation verify ipsak_*_linux_amd64.tar.gz --repo linsomniac/ipsak
 ```
 
-The macOS and Windows binaries are not code-signed. macOS quarantines a binary downloaded through a browser; clear that with `xattr -d com.apple.quarantine ipsak`. Windows SmartScreen may warn on first run. Linux and macOS are the primary platforms: on Windows, `route`, `sockets`, `neighbors`, `wake`, `ipconflict`, `mtu` and DHCP probing report that they are unsupported, `trace` and live `capture` need `traceroute` and `tcpdump`, and ICMP commands may need an Administrator prompt.
+The macOS and Windows binaries are not code-signed. macOS quarantines a binary downloaded through a browser; clear that with `xattr -d com.apple.quarantine ipsak`. Windows SmartScreen may warn on first run.
+
+The Windows binaries are experimental: CI builds them and compiles the tests, but the test suite does not yet pass on Windows. There, `route`, `sockets`, `neighbors`, `wake`, `ipconflict`, `mtu` and DHCP probing report that they are unsupported, `trace` and live `capture` need `traceroute` and `tcpdump`, ICMP commands may need an Administrator prompt, and `connect` or `listen` may not exit when output fails while they wait for piped input.
 
 ## Explore
 
@@ -347,7 +349,7 @@ make check              # go vet and go test -race
 go test ./...
 ```
 
-Tests use deterministic packet accounting, fake transports and HTTP responses, and local UDP/TCP DNS fixtures. They do not query public services or require raw sockets. The DNS fixtures need permission to open loopback sockets. CI runs the tests on Linux, macOS and Windows, builds and installs the deb and rpm packages, and runs `nix flake check`, which boots a NixOS VM to test the module. The [design notes](docs/design.md) describe concurrency, loss semantics, and the ultra-effort review process.
+Tests use deterministic packet accounting, fake transports and HTTP responses, and local UDP/TCP DNS fixtures. They do not query public services or require raw sockets. The DNS fixtures need permission to open loopback sockets. CI runs the tests on Linux and macOS, compiles them on Windows, builds and installs the deb and rpm packages, and runs `nix flake check`, which boots a NixOS VM to test the module. The [design notes](docs/design.md) describe concurrency, loss semantics, and the ultra-effort review process.
 
 ### Releasing
 
