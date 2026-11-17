@@ -74,6 +74,12 @@ HTTPS proxy settings are honored: the forced connection family then applies to
 the proxy, and results describe the public egress seen by the provider. A provider
 response must still match the requested address family.
 
+`geoip` returns `target` and `geo`. `whois` returns `target`, `whois`, and `geo`.
+
+For `asn <ip>`, the report target is the supplied IP. An additional `origin`
+section precedes the four AS report sections and contains the primary `asn`,
+its `prefix`, and any `other_origins`. The AS report uses the primary origin.
+
 Multi-origin RPKI validates the primary observed origin only; other origin ASNs
 remain visible in `asn.other_origins`.
 

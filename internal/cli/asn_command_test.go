@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -29,9 +30,11 @@ func asnFixture(t *testing.T, neighboursStatus int) *lookup.Service {
 		t.Fatal(err)
 	}
 	names := map[string]string{
-		"as15169.asn.cymru.com.":  "15169 | US | arin | 2000-03-30 | GOOGLE - Google LLC, US",
-		"as3356.asn.cymru.com.":   "3356 | US | arin | 2000-03-10 | LEVEL3, US",
-		"as396982.asn.cymru.com.": "396982 | US | arin | 2017-03-23 | GOOGLE-CLOUD-PLATFORM, US",
+		"8.8.8.8.origin.asn.cymru.com.":                                 "15169 123 | 8.8.8.0/24 | US | arin | 2000-03-30",
+		lookup.OriginQuery(netip.MustParseAddr("2001:4860:4860::8888")): "15169 | 2001:4860::/32 | US | arin | 2000-03-30",
+		"as15169.asn.cymru.com.":                                        "15169 | US | arin | 2000-03-30 | GOOGLE - Google LLC, US",
+		"as3356.asn.cymru.com.":                                         "3356 | US | arin | 2000-03-10 | LEVEL3, US",
+		"as396982.asn.cymru.com.":                                       "396982 | US | arin | 2017-03-23 | GOOGLE-CLOUD-PLATFORM, US",
 	}
 	ready := make(chan struct{})
 	server := &dns.Server{PacketConn: conn, NotifyStartedFunc: func() { close(ready) }, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, q *dns.Msg) {
@@ -101,7 +104,7 @@ func TestASNCommandValidationAndHelp(t *testing.T) {
 			return nil, errors.New("no network in tests")
 		})}}
 	}
-	for _, args := range [][]string{{"asn", "AS1", "AS2"}, {"asn", "example.com"}, {"asn", "8.8.8.8"}, {"asn", "AS0"}, {"asn", "AS15169", "--limit", "0"}, {"asn", "AS15169", "--limit", "101"}} {
+	for _, args := range [][]string{{"asn", "AS1", "AS2"}, {"asn", "example.com"}, {"asn", "8.8.8.0/24"}, {"asn", "AS0"}, {"asn", "AS15169", "--limit", "0"}, {"asn", "AS15169", "--limit", "101"}} {
 		out, err := invokeASN(t, trap, config{json: true}, args...)
 		// Execute maps any error that is not an ExitError to exit status 2.
 		var exit *ExitError
@@ -175,5 +178,39 @@ func TestASNCommandPlainOutput(t *testing.T) {
 	}
 	if strings.Contains(out, "\x1b") || strings.Contains(out, "e+0") {
 		t.Errorf("escapes or exponent notation in:\n%s", out)
+	}
+}
+
+func TestASNCommandIP(t *testing.T) {
+	service := asnFixture(t, http.StatusOK)
+	for _, ip := range []string{"8.8.8.8", "2001:4860:4860::8888", "1.1.1.1"} {
+		out, err := invokeASN(t, func() *lookup.Service { return service }, config{json: true}, "asn", ip, "--limit", "1")
+		r := probeJSON(t, out, "asn")
+		if r.Target != ip || len(r.Sections) != 5 || r.Sections[0].Key != "origin" {
+			t.Fatal(out)
+		}
+		if ip == "1.1.1.1" {
+			var exit *ExitError
+			if !errors.As(err, &exit) || exit.Code != 1 || r.Sections[0].Status != "error" {
+				t.Fatal(err, out)
+			}
+			for _, section := range r.Sections[1:] {
+				if section.Status != "skipped" {
+					t.Fatal(out)
+				}
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err, out)
+		}
+		for _, section := range r.Sections {
+			if section.Status != "ok" {
+				t.Fatal(out)
+			}
+		}
+		if r.Sections[1].Data.(map[string]any)["asn"] != float64(15169) {
+			t.Fatal(out)
+		}
 	}
 }

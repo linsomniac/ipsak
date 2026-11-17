@@ -59,7 +59,8 @@ The Windows binaries are experimental: CI builds them and compiles the tests, bu
 | `ipsak info <ip\|cidr\|domain>` | DNS, ASN, organization, approximate location, RDAP registration, RPKI, and DNS blocklists |
 | `ipsak ping <ip\|cidr\|domain>` | Live host latency or a network sweep with responder counts and timing |
 | `ipsak dns <ip\|domain>` | A, AAAA, CNAME, MX, NS, TXT, SOA, or reverse PTR |
-| `ipsak whois <ip\|domain>` | IP registration through RDAP; domains resolve to an IP |
+| `ipsak whois <ip\|domain>` | RDAP registration and approximate location for the IP or resolved domain |
+| `ipsak geoip <ip>` | Approximate geographic location for an IPv4 or IPv6 address |
 | `ipsak calc <cidr>` | Constant-space subnet arithmetic, including IPv6 `/0` |
 | `ipsak trace <ip\|domain>` | System traceroute, with optional per-hop ASN enrichment |
 | `ipsak myip` | Public IPv4 and IPv6 discovered in parallel, with details for the first responding address; `--interfaces` adds local interfaces |
@@ -97,7 +98,7 @@ ipsak myip --interfaces
 | `serve [port\|address]` | HTTP diagnostic server: echo requests, or return a chosen body/status/delay |
 | `wake <mac>` | Send Wake-on-LAN packets with destination, source-interface, and repeat-count options |
 | `lookingglass <ip\|cidr>` | Query public RIPE RIS and NLNOG BGP observations concurrently; aliases `looking-glass`, `lg` |
-| `asn <as-number>` | Name and registry, RDAP registration and abuse contacts, BGP neighbours, and routing visibility for an autonomous system |
+| `asn <as-number\|ip>` | Name and registry, RDAP registration and abuse contacts, BGP neighbours, and routing visibility for an autonomous system |
 | `ntptime [server[:port]]` | NTP response timestamps, offset, delay, and server metadata; default `pool.ntp.org` |
 | `capture` | Readable live packet summaries or classic-pcap analysis, with filters and optional pcap output |
 | `mailcheck <domain>` | MX, SPF, DMARC, optional DKIM selector, and optional SMTP/STARTTLS checks without sending mail |
@@ -121,6 +122,7 @@ ipsak interfaces --sample 1s
 ipsak sockets --listening --port 443
 ipsak lookingglass 8.8.8.8 --limit 10
 ipsak asn AS15169 --limit 5
+ipsak asn 8.8.8.8
 ipsak ntptime pool.ntp.org --json
 ```
 
@@ -136,7 +138,9 @@ MTU sizes include IP and ICMP headers. Success at the requested ceiling means
 "at least" that size; silence is inconclusive. Raw ICMP privileges are required
 (`CAP_NET_RAW` on Linux, elevated privileges on macOS). Looking-glass results are
 BGP observations from particular collectors, rather than remote ping/traceroute.
-`asn` accepts `AS15169` or `15169`; its neighbours are AS-path positions seen by
+`asn` accepts an AS number (`AS15169` or `15169`) or an IPv4 or IPv6 address.
+For an IP with multiple origins, it lists the other origins and reports on the
+first one returned by Team Cymru. Its neighbours are AS-path positions seen by
 RIPE RIS collectors, not confirmed business relationships, and `--limit` caps how
 many are listed in each direction. RIPEstat can take over 30 seconds for a large
 network, so raise `--timeout` if its sections report a deadline.

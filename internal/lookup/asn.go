@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"sort"
 	"strconv"
@@ -438,21 +439,40 @@ func sectionData[T any](value T, err error) (any, error) {
 	return value, nil
 }
 
-// ASNTasks describes one AS. The providers do not depend on each other, so a
-// failure in one leaves the other sections intact.
-func (s *Service) ASNTasks(number uint32, limit int) []Task {
-	return []Task{
-		{Key: "asn", Title: "Network · ASN", Source: "Team Cymru", Run: func(ctx context.Context, _ map[string]Section) (any, error) {
-			return sectionData(s.DNS.ASNInfo(ctx, number))
-		}},
-		{Key: "registration", Title: "Registration · RDAP", Source: "IANA → regional registry", Run: func(ctx context.Context, _ map[string]Section) (any, error) {
-			return sectionData(s.ASNRegistration(ctx, number))
-		}},
-		{Key: "neighbours", Title: "Neighbours · BGP", Source: "RIPEstat", Run: func(ctx context.Context, _ map[string]Section) (any, error) {
-			return sectionData(s.ASNNeighbours(ctx, number, limit))
-		}},
-		{Key: "routing", Title: "Routing visibility", Source: "RIPEstat", Run: func(ctx context.Context, _ map[string]Section) (any, error) {
-			return sectionData(s.ASNRouting(ctx, number))
-		}},
+// ASNTasks describes a supplied AS number or the first observed origin of an IP.
+func (s *Service) ASNTasks(number uint32, ip netip.Addr, limit int) []Task {
+	var tasks []Task
+	var depends []string
+	if ip.IsValid() {
+		depends = []string{"origin"}
+		tasks = append(tasks, Task{Key: "origin", Title: "Origin ASN", Source: "Team Cymru", Run: func(ctx context.Context, _ map[string]Section) (any, error) {
+			if class := Classify(ip); class != "Public" {
+				return nil, Skip("public lookup is not applicable to " + class + " addresses")
+			}
+			return sectionData(s.DNS.ASN(ctx, ip))
+		}})
 	}
+	reportTask := func(key, title, source string, query func(context.Context, uint32) (any, error)) Task {
+		return Task{Key: key, Title: title, Source: source, Depends: depends, Run: func(ctx context.Context, deps map[string]Section) (any, error) {
+			asn := number
+			if ip.IsValid() {
+				asn = deps["origin"].Data.(ASN).Number
+			}
+			return query(ctx, asn)
+		}}
+	}
+	return append(tasks,
+		reportTask("asn", "Network · ASN", "Team Cymru", func(ctx context.Context, asn uint32) (any, error) {
+			return sectionData(s.DNS.ASNInfo(ctx, asn))
+		}),
+		reportTask("registration", "Registration · RDAP", "IANA → regional registry", func(ctx context.Context, asn uint32) (any, error) {
+			return sectionData(s.ASNRegistration(ctx, asn))
+		}),
+		reportTask("neighbours", "Neighbours · BGP", "RIPEstat", func(ctx context.Context, asn uint32) (any, error) {
+			return sectionData(s.ASNNeighbours(ctx, asn, limit))
+		}),
+		reportTask("routing", "Routing visibility", "RIPEstat", func(ctx context.Context, asn uint32) (any, error) {
+			return sectionData(s.ASNRouting(ctx, asn))
+		}),
+	)
 }

@@ -95,7 +95,7 @@ func newCommand(version string, openSweep func(netip.Addr) (ping.SweepTransport,
 	root.PersistentFlags().BoolVar(&c.plain, "plain", false, "Use plain text without live updates")
 	root.PersistentFlags().BoolVar(&c.noColor, "no-color", false, "Disable terminal colors")
 	root.PersistentFlags().VarP(durationValue{&c.timeout}, "timeout", "T", "Overall lookup deadline, or ping reply timeout (seconds or Go duration)")
-	for _, spec := range []struct{ name, use, help string }{{"info", "info <ip|cidr|domain>", "Explore DNS, ASN, registration, location, routes and reputation"}, {"dns", "dns <ip|domain>", "Inspect DNS records or reverse DNS"}, {"whois", "whois <ip|domain>", "Look up registration through RDAP"}, {"calc", "calc <cidr>", "Calculate IPv4 and IPv6 subnet ranges instantly"}, {"trace", "trace <ip|domain>", "Follow the network path with the system traceroute"}, {"myip", "myip", "Discover your public IPv4 and IPv6 addresses"}} {
+	for _, spec := range []struct{ name, use, help string }{{"info", "info <ip|cidr|domain>", "Explore DNS, ASN, registration, location, routes and reputation"}, {"dns", "dns <ip|domain>", "Inspect DNS records or reverse DNS"}, {"whois", "whois <ip|domain>", "Look up RDAP registration and approximate IP location"}, {"geoip", "geoip <ip>", "Look up the approximate location of an IP address"}, {"calc", "calc <cidr>", "Calculate IPv4 and IPv6 subnet ranges instantly"}, {"trace", "trace <ip|domain>", "Follow the network path with the system traceroute"}, {"myip", "myip", "Discover your public IPv4 and IPv6 addresses"}} {
 		opts := lookup.Options{Probes: 3}
 		spec := spec
 		cmd := &cobra.Command{Use: spec.use, Short: spec.help, Args: cobra.ExactArgs(1)}

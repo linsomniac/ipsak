@@ -58,6 +58,9 @@ func publicTarget(deps map[string]Section) (Target, error) {
 }
 
 func (s *Service) Tasks(command string, t Target, opts Options) ([]Task, error) {
+	if command == "geoip" && (!t.IP.IsValid() || t.Prefix.IsValid()) {
+		return nil, fmt.Errorf("geoip requires an IP address")
+	}
 	if command == "calc" {
 		if !t.Prefix.IsValid() {
 			return nil, fmt.Errorf("calc requires a CIDR, for example 10.0.0.0/24")
@@ -118,6 +121,7 @@ func (s *Service) Tasks(command string, t Target, opts Options) ([]Task, error) 
 			return fn(ctx, t.IP)
 		}}
 	}
+	geo := ipTask("geo", "Location", "ipwho.is · approximate", s.Geo)
 	if command == "info" || command == "myip" || command == "whois" {
 		tasks = append(tasks, ipTask("whois", "Registration · RDAP", "IANA → regional registry", s.Whois))
 	}
@@ -127,12 +131,15 @@ func (s *Service) Tasks(command string, t Target, opts Options) ([]Task, error) 
 			Task{Key: "asn_name", Title: "Network organization", Source: "Team Cymru", Depends: []string{"asn"}, Run: func(ctx context.Context, deps map[string]Section) (any, error) {
 				return s.DNS.ASNName(ctx, deps["asn"].Data.(ASN).Number)
 			}},
-			ipTask("geo", "Location", "ipwho.is · approximate", s.Geo),
+			geo,
 			Task{Key: "rpki", Title: "Route validation · RPKI", Source: "RIPEstat", Depends: []string{"asn"}, Run: func(ctx context.Context, deps map[string]Section) (any, error) {
 				return s.RPKI(ctx, deps["asn"].Data.(ASN))
 			}},
 			ipTask("reputation", "Reputation · DNS blocklists", "Spamhaus · SpamCop · Barracuda", s.DNS.Reputation),
 		)
+	}
+	if command == "geoip" || command == "whois" {
+		tasks = append(tasks, geo)
 	}
 	if command == "trace" || opts.Trace {
 		tasks = append(tasks, Task{Key: "trace", Title: "Traceroute", Source: "system traceroute / tracepath", Depends: []string{"target"}, Run: func(ctx context.Context, deps map[string]Section) (any, error) {

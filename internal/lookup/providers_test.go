@@ -333,3 +333,59 @@ func TestWhoisListsEachAbuseAddressOnce(t *testing.T) {
 		t.Fatalf("%+v", w)
 	}
 }
+
+func TestLocationReports(t *testing.T) {
+	ip, err := ParseTarget("8.8.8.8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		command   string
+		geoStatus int
+		keys      []string
+	}{
+		{"geoip", 200, []string{"target", "geo"}},
+		{"whois", 200, []string{"target", "whois", "geo"}},
+		{"whois", 503, []string{"target", "whois", "geo"}},
+	} {
+		s := NewService()
+		s.RDAPURL = "https://example.test/ip/"
+		s.HTTP.Transport = roundTrip(func(req *http.Request) (*http.Response, error) {
+			switch req.URL.String() {
+			case s.GeoURL + ip.Name:
+				return response(tc.geoStatus, `{"success":true,"ip":"8.8.8.8","city":"Example","latitude":0,"longitude":0}`), nil
+			case s.RDAPURL + ip.Name:
+				return response(200, `{"startAddress":"8.8.8.0","endAddress":"8.8.8.255"}`), nil
+			}
+			return nil, fmt.Errorf("unexpected URL %s", req.URL)
+		})
+		tasks, err := s.Tasks(tc.command, ip, Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sections, err := Run(context.Background(), tasks)
+		if err != nil {
+			t.Fatal(err)
+		}
+		report := NewReport(tc.command, ip.Name, tasks)
+		for section := range sections {
+			report.Apply(section)
+		}
+		if len(report.Sections) != len(tc.keys) {
+			t.Fatal(report)
+		}
+		for i, key := range tc.keys {
+			section := report.Sections[i]
+			status := "ok"
+			if key == "geo" && tc.geoStatus != 200 {
+				status = "error"
+			}
+			if section.Key != key || section.Status != status {
+				t.Fatal(section)
+			}
+			if key == "geo" && status == "ok" && section.Data.(Geo).City != "Example" {
+				t.Fatal(section)
+			}
+		}
+	}
+}
